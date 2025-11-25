@@ -77,6 +77,7 @@
         }
 
         /* 中央メッセージ（タイトル・ゲームオーバー） */
+        /* z-indexを高く設定して確実に押せるように修正 */
         #overlay {
             position: absolute;
             top: 0;
@@ -88,7 +89,8 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            pointer-events: auto; /* ボタン押下のため */
+            pointer-events: auto;
+            z-index: 100; /* 最前面に */
             transition: opacity 0.3s;
         }
 
@@ -121,6 +123,7 @@
             cursor: pointer;
             box-shadow: 0 4px 0 #2E7D32;
             transition: transform 0.1s;
+            pointer-events: auto; /* 明示的にクリック可能に */
         }
 
         button:active {
@@ -179,17 +182,13 @@
     </div>
 
 <script>
+// エラーハンドリング：何らかのエラーで止まった場合にアラートを出す
+window.onerror = function(message, source, lineno, colno, error) {
+    alert("エラーが発生しました:\n" + message);
+};
+
 /**
  * ぴよランナー - メインスクリプト
- * 構成:
- * 1. Constants & Globals: 定数とグローバル変数
- * 2. Setup: Three.jsの初期化
- * 3. Classes:
- * - Piyo (プレイヤー)
- * - World (床、背景)
- * - ObjectManager (障害物、アイテム管理)
- * - InputManager (タッチ操作)
- * 4. Game Loop: メインループとロジック
  */
 
 // --- 1. Constants & Globals ---
@@ -240,48 +239,54 @@ let piyo, world, objectManager, inputManager;
 // --- 2. Setup ---
 
 function init() {
-    // シーン作成
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(COLORS.SKY);
-    scene.fog = new THREE.Fog(COLORS.SKY, 20, 60);
+    try {
+        // シーン作成
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(COLORS.SKY);
+        scene.fog = new THREE.Fog(COLORS.SKY, 20, 60);
 
-    // カメラ設定 (クォータービュー)
-    // プレイヤーは x=-5 あたりにいる想定。
-    // 右奥から左手前へ流れる演出のため、カメラをやや斜めに配置
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(-8, 12, 12); 
-    camera.lookAt(5, 0, 0);
+        // カメラ設定 (クォータービュー)
+        camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(-8, 12, 12); 
+        camera.lookAt(5, 0, 0);
 
-    // レンダラー設定
-    const container = document.getElementById('game-container');
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = true;
-    container.appendChild(renderer.domElement);
+        // レンダラー設定
+        const container = document.getElementById('game-container');
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
 
-    // ライティング
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambientLight);
+        // ライティング
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
-    dirLight.position.set(10, 20, 10);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 1024;
-    dirLight.shadow.mapSize.height = 1024;
-    scene.add(dirLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
 
-    // 各クラスの初期化
-    world = new World();
-    piyo = new Piyo();
-    objectManager = new ObjectManager();
-    inputManager = new InputManager();
+        // 各クラスの初期化
+        world = new World();
+        piyo = new Piyo();
+        objectManager = new ObjectManager();
+        inputManager = new InputManager();
 
-    // イベントリスナー
-    window.addEventListener('resize', onWindowResize, false);
-    document.getElementById('start-btn').addEventListener('click', startGame);
+        // イベントリスナー
+        window.addEventListener('resize', onWindowResize, false);
+        document.getElementById('start-btn').addEventListener('click', startGame);
 
-    // ループ開始
-    animate();
+        // ボタンのtouchstartでバブリングを止めて、ゲーム内のジャンプが誤爆しないようにする
+        document.getElementById('start-btn').addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+        }, {passive: true});
+
+        // ループ開始
+        animate();
+    } catch (e) {
+        alert("初期化中にエラーが発生しました: " + e);
+        console.error(e);
+    }
 }
 
 function onWindowResize() {
@@ -292,9 +297,6 @@ function onWindowResize() {
 
 // --- 3. Classes ---
 
-/**
- * プレイヤー（ひよこ）クラス
- */
 class Piyo {
     constructor() {
         this.mesh = new THREE.Group();
@@ -326,8 +328,7 @@ class Piyo {
 
         scene.add(this.mesh);
 
-        // 状態
-        this.lane = 1; // 0~3
+        this.lane = 1;
         this.targetZ = this.getZFromLane(this.lane);
         this.mesh.position.set(-4, 1, this.targetZ);
         
@@ -335,32 +336,28 @@ class Piyo {
         this.isJumping = false;
         this.invincibleTimer = 0;
         this.flashTimer = 0;
-        
-        // アニメーション用
         this.bounceOffset = 0;
     }
 
     getZFromLane(lane) {
-        // レーン0が奥(-Z)、レーン3が手前(+Z)
-        // 中心を0として配置
         const centerOffset = (GAME_CONFIG.LANE_COUNT - 1) * GAME_CONFIG.LANE_WIDTH / 2;
         return (lane * GAME_CONFIG.LANE_WIDTH) - centerOffset;
     }
 
     reset() {
-        this.lane = 1; // 初期レーン
+        this.lane = 1;
         this.mesh.position.set(-4, 1, this.getZFromLane(this.lane));
         this.yVelocity = 0;
         this.isJumping = false;
         this.invincibleTimer = 0;
         this.mesh.visible = true;
+        this.onHole = false;
         this.body.material.color.setHex(COLORS.PIYO_BODY);
     }
 
     moveLane(direction) {
         if (!gameState.isPlaying) return;
         this.lane += direction;
-        // 範囲制限
         if (this.lane < 0) this.lane = 0;
         if (this.lane >= GAME_CONFIG.LANE_COUNT) this.lane = GAME_CONFIG.LANE_COUNT - 1;
     }
@@ -378,12 +375,10 @@ class Piyo {
     }
 
     damage(amount) {
-        if (this.invincibleTimer > 0) return; // 無敵中
+        if (this.invincibleTimer > 0) return; 
 
         gameState.hp -= amount;
         updateUI();
-
-        // ダメージ演出
         flashScreen();
         this.flashTimer = 20;
 
@@ -400,14 +395,13 @@ class Piyo {
     heal(amount) {
         gameState.hp = Math.min(100, gameState.hp + amount);
         updateUI();
-        // 光る演出（簡易）
         this.body.material.emissive.setHex(0x555555);
         setTimeout(() => { this.body.material.emissive.setHex(0x000000); }, 200);
     }
 
     setInvincible() {
         this.invincibleTimer = GAME_CONFIG.INVINCIBLE_TIME;
-        gameState.speed += 0.05; // 少し加速
+        gameState.speed += 0.05;
     }
 
     die() {
@@ -418,30 +412,24 @@ class Piyo {
     }
 
     update() {
-        // X座標は固定、Z座標（レーン）をスムーズに移動
         this.targetZ = this.getZFromLane(this.lane);
         this.mesh.position.z += (this.targetZ - this.mesh.position.z) * 0.2;
 
-        // ジャンプ & 重力
         if (this.isJumping) {
             this.mesh.position.y += this.yVelocity;
             this.yVelocity -= GAME_CONFIG.GRAVITY;
 
-            // 着地判定 (Y < 1 で着地とみなす)
-            // 穴の上にいる場合は着地しない判定が必要だが、
-            // 簡易的にここでは地面高さ(1)で判定し、Collision側で穴判定を行う
+            // 着地判定 (簡易)
             if (this.mesh.position.y <= 1 && !this.onHole) {
                 this.mesh.position.y = 1;
                 this.isJumping = false;
                 this.yVelocity = 0;
             }
         } else {
-            // 走っている時の上下揺れ
             this.bounceOffset += 0.2;
             if (!this.onHole) {
                 this.mesh.position.y = 1 + Math.abs(Math.sin(this.bounceOffset)) * 0.2;
             } else {
-                // 穴に落ちる
                 this.mesh.position.y -= 0.5;
                 if (this.mesh.position.y < -5) {
                     this.die();
@@ -449,28 +437,23 @@ class Piyo {
             }
         }
 
-        // 回転アニメーション（走ってる感）
         if (!this.onHole) {
             this.body.rotation.z -= 0.1;
         }
 
-        // 無敵エフェクト
         if (this.invincibleTimer > 0) {
             this.invincibleTimer--;
-            // 点滅 or 色変化
             if (this.invincibleTimer % 10 < 5) {
                 this.body.material.color.setHex(COLORS.STAR);
             } else {
                 this.body.material.color.setHex(COLORS.PIYO_BODY);
             }
-            // 終了時
             if (this.invincibleTimer === 0) {
                 this.body.material.color.setHex(COLORS.PIYO_BODY);
                 gameState.speed = Math.max(GAME_CONFIG.START_SPEED, gameState.speed - 0.05);
             }
         }
 
-        // ダメージ点滅
         if (this.flashTimer > 0) {
             this.flashTimer--;
             this.mesh.visible = (this.flashTimer % 4 < 2);
@@ -480,21 +463,14 @@ class Piyo {
     }
 }
 
-/**
- * 地面と背景を管理するクラス
- */
 class World {
     constructor() {
         this.tiles = [];
         this.tileGroup = new THREE.Group();
         scene.add(this.tileGroup);
-
-        // 背景の山など
         this.sceneryGroup = new THREE.Group();
         scene.add(this.sceneryGroup);
         this.setupScenery();
-
-        // 床の生成 (20列 x 4レーン)
         this.cols = 24;
         for (let x = 0; x < this.cols; x++) {
             for (let z = 0; z < GAME_CONFIG.LANE_COUNT; z++) {
@@ -504,16 +480,11 @@ class World {
     }
 
     setupScenery() {
-        // 簡易的な山や雲を配置
         for(let i=0; i<10; i++) {
             const geo = new THREE.ConeGeometry(5 + Math.random()*5, 10 + Math.random()*10, 4);
             const mat = new THREE.MeshLambertMaterial({color: 0x88CC88});
             const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(
-                Math.random() * 100 - 20,
-                -5,
-                -15 - Math.random() * 20 // 奥の方
-            );
+            mesh.position.set(Math.random() * 100 - 20, -5, -15 - Math.random() * 20);
             this.sceneryGroup.add(mesh);
         }
     }
@@ -521,40 +492,30 @@ class World {
     createTile(gridX, laneIndex) {
         const size = GAME_CONFIG.TILE_SIZE;
         const geo = new THREE.BoxGeometry(size, 1, GAME_CONFIG.LANE_WIDTH - 0.1);
-        
-        // 市松模様的な色分け
         const isEven = (gridX + laneIndex) % 2 === 0;
         const color = isEven ? COLORS.GROUND_A : COLORS.GROUND_B;
-        
         const mat = new THREE.MeshLambertMaterial({ color: color });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.receiveShadow = true;
 
-        // 初期位置計算
         const z = (laneIndex * GAME_CONFIG.LANE_WIDTH) - ((GAME_CONFIG.LANE_COUNT - 1) * GAME_CONFIG.LANE_WIDTH / 2);
-        // xは手前(-X)から奥(+X)へ、と言いたいところだが、
-        // プレイヤーが-Xに向かって走る(世界が+Xから-Xへ流れる)ので
-        // グリッド0はプレイヤーの少し後ろ、グリッドNは画面右奥
         const xStart = -10; 
         const x = xStart + gridX * size;
-
         mesh.position.set(x, -0.5, z);
 
         const tileData = {
             mesh: mesh,
-            gridX: gridX, // 論理的なインデックス
+            gridX: gridX,
             lane: laneIndex,
-            type: 'normal', // normal, hole, arrow, spring
+            type: 'normal',
             active: true
         };
-        
         mesh.userData = tileData;
         this.tiles.push(tileData);
         this.tileGroup.add(mesh);
     }
 
     reset() {
-        // タイルを初期位置に戻し、タイプをリセット
         this.tiles.forEach(t => {
             const size = GAME_CONFIG.TILE_SIZE;
             const xStart = -10;
@@ -567,40 +528,27 @@ class World {
         tile.type = 'normal';
         tile.mesh.visible = true;
         tile.mesh.material.color.setHex((tile.gridX + tile.lane) % 2 === 0 ? COLORS.GROUND_A : COLORS.GROUND_B);
-        // 矢印等の装飾があれば消す(簡易実装のため色で判断)
     }
 
     update() {
         const speed = gameState.speed;
         const size = GAME_CONFIG.TILE_SIZE;
-        const limitX = -12; // 画面左端（消える位置）
-        const respawnX = (this.cols * size) + limitX; // 画面右端（出現位置）
-
-        // 背景スクロール
+        const limitX = -12;
+        
         this.sceneryGroup.position.x -= speed * 0.2;
         if(this.sceneryGroup.position.x < -50) this.sceneryGroup.position.x = 0;
 
-        // タイル移動
         this.tiles.forEach(tile => {
             tile.mesh.position.x -= speed;
-
             if (tile.mesh.position.x < limitX) {
-                // リサイクル
                 tile.mesh.position.x += (this.cols * size);
                 this.resetTileType(tile);
-                
-                // 新しいギミックやオブジェクトの抽選
-                // 一番右の列（4レーン分）が同時に更新されるわけではないので、個別に抽選
-                // ※ 本来は列単位で管理したほうが生成制御しやすいが、今回は簡易的に個別に確率で生成
                 objectManager.spawnObjectOnTile(tile);
             }
         });
     }
 
-    // プレイヤー位置の下にあるタイルの情報を取得
     getTileAt(x, z) {
-        // x, z座標に最も近いタイルを探す（最適化可能だが全探索で実装）
-        // プレイヤーXは固定(-4)
         return this.tiles.find(t => 
             Math.abs(t.mesh.position.x - x) < GAME_CONFIG.TILE_SIZE / 2 &&
             Math.abs(t.mesh.position.z - z) < 0.5
@@ -608,13 +556,10 @@ class World {
     }
 }
 
-/**
- * 障害物・アイテム管理クラス
- */
 class ObjectManager {
     constructor() {
-        this.objects = []; // アクティブなオブジェクト
-        this.pool = []; // オブジェクトプール
+        this.objects = [];
+        this.pool = [];
         this.objGroup = new THREE.Group();
         scene.add(this.objGroup);
     }
@@ -627,14 +572,12 @@ class ObjectManager {
         this.objects = [];
     }
 
-    // オブジェクトファクトリ
     createMesh(type) {
         let mesh;
         if (type === 'spike') {
             mesh = new THREE.Group();
             const core = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8), new THREE.MeshLambertMaterial({color: COLORS.SPIKE}));
             mesh.add(core);
-            // トゲ
             for(let i=0; i<6; i++) {
                 const cone = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.6, 8), new THREE.MeshLambertMaterial({color: COLORS.SPIKE}));
                 cone.position.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize().multiplyScalar(0.4);
@@ -645,7 +588,6 @@ class ObjectManager {
             mesh = new THREE.Group();
             const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), new THREE.MeshLambertMaterial({color: COLORS.BEE}));
             mesh.add(body);
-            // 羽（回転させる）
             const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.2), new THREE.MeshBasicMaterial({color: 0xFFFFFF, side: THREE.DoubleSide, transparent: true, opacity: 0.8}));
             wing.position.y = 0.3;
             wing.rotation.x = Math.PI/2;
@@ -659,7 +601,6 @@ class ObjectManager {
             mesh.add(body);
             mesh.add(fuse);
         } else if (type === 'heart') {
-            // 簡易ハート（2つの球）
             mesh = new THREE.Group();
             const m = new THREE.MeshLambertMaterial({color: COLORS.HEART});
             const s1 = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), m);
@@ -669,10 +610,8 @@ class ObjectManager {
             mesh.add(s1);
             mesh.add(s2);
         } else if (type === 'star') {
-            // 簡易星（正八面体）
             mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.4, 0), new THREE.MeshBasicMaterial({color: COLORS.STAR}));
         }
-        
         if(mesh) {
             mesh.castShadow = true;
             this.objGroup.add(mesh);
@@ -681,118 +620,78 @@ class ObjectManager {
     }
 
     spawnObjectOnTile(tile) {
-        // 確率で生成
         const rand = Math.random();
-        
-        // 穴生成 (5%)
         if (rand < 0.05) {
             tile.type = 'hole';
-            tile.mesh.visible = false; // 見えなくする（穴）
+            tile.mesh.visible = false; 
             return; 
         }
-
-        // 床ギミック (5%)
         if (rand < 0.10) {
             const type = Math.random() < 0.5 ? 'arrow' : 'spring';
             tile.type = type;
             tile.mesh.material.color.setHex(type === 'arrow' ? COLORS.ARROW_FLOOR : COLORS.SPRING_FLOOR);
-            // 矢印方向はランダム
             if (type === 'arrow') {
                 tile.arrowDir = Math.random() < 0.5 ? 1 : -1;
-                // 端の場合は内側へ
                 if (tile.lane === 0) tile.arrowDir = 1;
                 if (tile.lane === GAME_CONFIG.LANE_COUNT-1) tile.arrowDir = -1;
             }
             return;
         }
-
-        // オブジェクト生成 (15% 敵, 5% アイテム)
         let type = null;
         if (rand < 0.20) {
-            // 敵
             const r2 = Math.random();
             if (r2 < 0.4) type = 'spike';
             else if (r2 < 0.7) type = 'bee';
             else type = 'bomb';
         } else if (rand < 0.25) {
-            // アイテム
-            // HPピンチなら回復出やすく
             const needHeal = gameState.hp <= 30;
             if (needHeal && Math.random() < 0.7) type = 'heart';
             else type = Math.random() < 0.7 ? 'heart' : 'star';
         }
-
         if (!type) return;
 
-        // プールから取得または新規作成
         let objData = this.pool.find(o => !o.active && o.type === type);
         if (!objData) {
-            objData = {
-                mesh: this.createMesh(type),
-                type: type,
-                active: false
-            };
-            this.objects.push(objData); // 管理リストへ
+            objData = { mesh: this.createMesh(type), type: type, active: false };
+            this.objects.push(objData);
         } else {
-            // プールから除外
             this.pool = this.pool.filter(o => o !== objData);
             this.objects.push(objData);
         }
-
-        // 初期化
         objData.active = true;
         objData.mesh.visible = true;
+        objData.mesh.position.set(tile.mesh.position.x, 0.5, tile.mesh.position.z);
         
-        // 位置合わせ
-        objData.mesh.position.x = tile.mesh.position.x;
-        objData.mesh.position.z = tile.mesh.position.z;
-        
-        // 高さ設定
         if (type === 'bee') {
-            objData.mesh.position.y = 2.5; // 空中
-            objData.oscillation = Math.random() * Math.PI; // 上下のゆらぎ用位相
+            objData.mesh.position.y = 2.5; 
+            objData.oscillation = Math.random() * Math.PI;
         } else if (type === 'bomb') {
-            objData.mesh.position.y = 0.5; // 地面転がる
-        } else {
-            objData.mesh.position.y = 0.5; // 地面
-        }
-
-        // アイテムは少し浮かせる
-        if (type === 'heart' || type === 'star') {
+            objData.mesh.position.y = 0.5;
+        } else if (type === 'heart' || type === 'star') {
             objData.mesh.position.y = 1.0;
         }
     }
 
     update() {
         const speed = gameState.speed;
-        // 更新とクリーンアップ
         for (let i = this.objects.length - 1; i >= 0; i--) {
             const obj = this.objects[i];
-            
-            // 移動
             obj.mesh.position.x -= speed;
 
-            // 個別アニメーション
             if (obj.type === 'spike' || obj.type === 'bomb') {
-                obj.mesh.rotation.z += 0.1; // 転がる
+                obj.mesh.rotation.z += 0.1;
             } else if (obj.type === 'bee') {
                 obj.oscillation += 0.1;
-                obj.mesh.position.y = 2.5 + Math.sin(obj.oscillation) * 0.5; // 上下移動
-                // プレイヤーに近づく横移動（簡易ホーミング）
+                obj.mesh.position.y = 2.5 + Math.sin(obj.oscillation) * 0.5;
                 if (obj.mesh.position.x > piyo.mesh.position.x) {
                    const dz = piyo.mesh.position.z - obj.mesh.position.z;
                    if (Math.abs(dz) < 3) obj.mesh.position.z += dz * 0.02;
                 }
-                // 羽ばたき
                 if (obj.mesh.userData.wing) obj.mesh.userData.wing.rotation.z += 1;
             } else if (obj.type === 'heart' || obj.type === 'star') {
                 obj.mesh.rotation.y += 0.05;
             }
-
-            // 画面外へ消えたらプールへ
-            if (obj.mesh.position.x < -15) {
-                this.deactivate(obj, i);
-            }
+            if (obj.mesh.position.x < -15) this.deactivate(obj, i);
         }
     }
 
@@ -804,31 +703,21 @@ class ObjectManager {
     }
 
     checkCollision(player) {
-        // プレイヤー判定ボックス（簡易: 中心距離）
         const pPos = player.mesh.position;
-        const hitDist = 0.8; // 当たり判定半径
-
-        // オブジェクトとの衝突
+        const hitDist = 0.8; 
         for (let i = this.objects.length - 1; i >= 0; i--) {
             const obj = this.objects[i];
             const dx = pPos.x - obj.mesh.position.x;
+            if (Math.abs(dx) > 1.0) continue;
             const dy = pPos.y - obj.mesh.position.y;
             const dz = pPos.z - obj.mesh.position.z;
-            
-            // X軸距離チェック（高速化のため）
-            if (Math.abs(dx) > 1.0) continue;
-
             const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-            if (dist < hitDist) {
-                this.resolveCollision(player, obj, i);
-            }
+            if (dist < hitDist) this.resolveCollision(player, obj, i);
         }
     }
 
     resolveCollision(player, obj, index) {
         const type = obj.type;
-
-        // アイテム系は取得したら消える
         if (type === 'heart') {
             player.heal(20);
             this.deactivate(obj, index);
@@ -836,13 +725,8 @@ class ObjectManager {
             player.setInvincible();
             this.deactivate(obj, index);
         } else {
-            // 敵・障害物（無敵なら無視）
             if (player.invincibleTimer > 0) return;
-
-            if (type === 'spike') {
-                player.damage(20);
-                this.deactivate(obj, index); // 当たったら消す（または通り抜ける）
-            } else if (type === 'bee') {
+            if (type === 'spike' || type === 'bee') {
                 player.damage(20);
                 this.deactivate(obj, index);
             } else if (type === 'bomb') {
@@ -853,9 +737,6 @@ class ObjectManager {
     }
 }
 
-/**
- * 入力管理クラス
- */
 class InputManager {
     constructor() {
         this.startX = 0;
@@ -865,14 +746,11 @@ class InputManager {
         document.addEventListener('touchstart', this.onTouchStart.bind(this), {passive: false});
         document.addEventListener('touchmove', this.onTouchMove.bind(this), {passive: false});
         document.addEventListener('touchend', this.onTouchEnd.bind(this), {passive: false});
-        
-        // デバッグ用マウス操作
         document.addEventListener('mousedown', this.onMouseDown.bind(this));
         document.addEventListener('mouseup', this.onMouseUp.bind(this));
     }
 
     onTouchStart(e) {
-        // UIタップは除外したいが、今回は全画面で取る
         this.startX = e.touches[0].clientX;
         this.startY = e.touches[0].clientY;
         this.isTouching = true;
@@ -880,8 +758,7 @@ class InputManager {
 
     onTouchMove(e) {
         if (!this.isTouching) return;
-        // スワイプ操作の基本
-        e.preventDefault(); 
+        if (gameState.isPlaying) e.preventDefault(); 
     }
 
     onTouchEnd(e) {
@@ -892,7 +769,6 @@ class InputManager {
         this.isTouching = false;
     }
 
-    // PCデバッグ用
     onMouseDown(e) {
         this.startX = e.clientX;
         this.startY = e.clientY;
@@ -912,19 +788,11 @@ class InputManager {
         const dist = Math.sqrt(dx*dx + dy*dy);
 
         if (dist < 30) {
-            // タップとみなす -> ジャンプ
             piyo.jump();
         } else {
-            // スワイプ
             if (Math.abs(dy) > Math.abs(dx)) {
-                // 縦スワイプ
-                if (dy > 0) {
-                    // 下方向スワイプ（画面手前へ）
-                    piyo.moveLane(1);
-                } else {
-                    // 上方向スワイプ（画面奥へ）
-                    piyo.moveLane(-1);
-                }
+                if (dy > 0) piyo.moveLane(1);
+                else piyo.moveLane(-1);
             }
         }
     }
@@ -936,7 +804,6 @@ function startGame() {
     document.getElementById('overlay').classList.add('hidden');
     document.getElementById('result-area').classList.add('hidden');
     
-    // リセット
     gameState.isPlaying = true;
     gameState.score = 0;
     gameState.lives = 3;
@@ -956,7 +823,7 @@ function gameOver() {
     gameState.isPlaying = false;
     document.getElementById('overlay').classList.remove('hidden');
     document.getElementById('title-text').innerText = "GAME OVER";
-    document.getElementById('instructions').classList.add('hidden'); // 説明を隠す
+    document.getElementById('instructions').classList.add('hidden');
     
     const resultArea = document.getElementById('result-area');
     resultArea.classList.remove('hidden');
@@ -966,15 +833,10 @@ function gameOver() {
 }
 
 function updateUI() {
-    // ライフ
     let heartStr = "";
     for(let i=0; i<gameState.lives; i++) heartStr += "❤️";
     document.getElementById('lives').innerText = heartStr;
-
-    // HPバー
     document.getElementById('hp-bar').style.width = gameState.hp + "%";
-
-    // スコア
     document.getElementById('score-board').innerText = Math.floor(gameState.score);
 }
 
@@ -984,9 +846,8 @@ function flashScreen() {
     setTimeout(() => { flash.style.opacity = 0; }, 100);
 }
 
-// 床ギミック判定
 function checkTileGimmick() {
-    if (piyo.isJumping && piyo.mesh.position.y > 1.5) return; // 高く飛んでたら無視
+    if (piyo.isJumping && piyo.mesh.position.y > 1.5) return; 
 
     const tile = world.getTileAt(piyo.mesh.position.x, piyo.mesh.position.z);
     
@@ -994,15 +855,13 @@ function checkTileGimmick() {
         piyo.onHole = (tile.type === 'hole');
 
         if (tile.type === 'hole') {
-            // 落下処理は piyo.update() 内で行われる
+            // 落下処理
         }
         else if (tile.type === 'arrow') {
-            // 強制移動
             piyo.forceMoveLane(tile.arrowDir);
-            tile.type = 'normal'; // 一回発動したら無効化（ループ防止）
+            tile.type = 'normal'; 
         }
         else if (tile.type === 'spring') {
-            // ロングジャンプ
             piyo.jump('long');
         }
     } else {
@@ -1017,32 +876,27 @@ function animate() {
         gameState.frameCount++;
         gameState.distance += gameState.speed;
         
-        // スコア加算 (距離 + 生存ボーナス)
         if (gameState.frameCount % 10 === 0) {
             gameState.score += 1;
             updateUI();
         }
-
-        // スピードアップ
-        if (gameState.frameCount % 600 === 0) { // 約10秒ごと
+        if (gameState.frameCount % 600 === 0) {
             gameState.speed = Math.min(GAME_CONFIG.MAX_SPEED, gameState.speed + 0.02);
         }
 
         world.update();
         objectManager.update();
         piyo.update();
-        
         checkTileGimmick();
         objectManager.checkCollision(piyo);
-    } else {
-        // ゲームオーバー時でも少しアニメーションさせると余韻があるが、
-        // 今回は停止
     }
 
-    renderer.render(scene, camera);
+    if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+    }
 }
 
-// スタート
+// 最後にinitを実行
 init();
 
 </script>
