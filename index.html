@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>ぴよランナー（サイドビュー改2）</title>
+    <title>ぴよランナー（アイテム盛りだくさんVer）</title>
     <style>
         body {
             margin: 0;
@@ -104,13 +104,23 @@
 
         .instructions {
             color: white;
-            font-size: 18px;
+            font-size: 16px;
             text-align: center;
             line-height: 1.6;
-            margin-bottom: 30px;
-            background: rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+            background: rgba(0,0,0,0.6);
             padding: 20px;
             border-radius: 10px;
+            max-width: 80%;
+        }
+
+        .item-list {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 5px 15px;
+            text-align: left;
+            margin-top: 10px;
+            font-size: 14px;
         }
 
         button {
@@ -149,6 +159,20 @@
             z-index: 5;
             transition: opacity 0.1s;
         }
+        
+        /* スロー効果エフェクト */
+        #slow-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 255, 0.1); /* 青っぽいフィルター */
+            opacity: 0;
+            pointer-events: none;
+            z-index: 4;
+            transition: opacity 0.5s;
+        }
     </style>
     <!-- Three.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -157,6 +181,7 @@
 
     <div id="game-container"></div>
     <div id="damage-flash"></div>
+    <div id="slow-overlay"></div>
 
     <div id="ui-layer">
         <div id="status-bar">
@@ -173,9 +198,13 @@
         <div class="instructions" id="instructions">
             👆 タップ：ジャンプ<br>
             ↕️ 上下スワイプ：レーン移動<br>
-            <br>
-            サボテン（🌵）はダメージ！<br>
-            穴に落ちるとライフが減るよ！
+            <div class="item-list">
+                <span>🍰</span><span>ケーキ：スコアGET！</span>
+                <span>🍙</span><span>おにぎり：体力回復</span>
+                <span>⭐</span><span>スター：無敵モード</span>
+                <span>🌶</span><span>唐辛子：スピードダウン...</span>
+                <span>🌵👻</span><span>敵：ぶつかるとダメージ！</span>
+            </div>
         </div>
         <div class="instructions hidden" id="result-area">
             SCORE: <span id="final-score">0</span>
@@ -192,31 +221,23 @@ window.onerror = function(message, source, lineno, colno, error) {
 
 const COLORS = {
     SKY: 0x87CEEB,
-    // コース色：薄い黄緑系
-    GROUND_A: 0x98FB98, // PaleGreen
-    GROUND_B: 0x90EE90, // LightGreen
+    GROUND_A: 0x98FB98, 
+    GROUND_B: 0x90EE90, 
     HOLE: 0x222222,
-    
-    // ジャンプ板
-    SPRING_FLOOR: 0xFFA500, // オレンジ
-    SPRING_SIDE: 0xCD8500,  // 濃いオレンジ
-    
-    // ヒヨコ用カラー
-    PIYO_BODY: 0xFFD700, // 黄色 (Gold)
-    PIYO_BEAK: 0xFFA500, // オレンジ
-    PIYO_EYE: 0x000000,  // 黒
-
-    SPIKE: 0xCC3300, 
-    SPIKE_DARK: 0x661100, 
-    HEART: 0xFF88AA, 
-    STAR: 0xFFFF66, 
+    SPRING_FLOOR: 0xFFA500, 
+    SPRING_SIDE: 0xCD8500,  
+    PIYO_BODY: 0xFFD700, 
+    PIYO_BEAK: 0xFFA500, 
+    PIYO_EYE: 0x000000,  
+    BLOCK: 0x6A5ACD, 
 };
 
 const GAME_CONFIG = {
     LANE_COUNT: 4,
     LANE_WIDTH: 2.5,
     TILE_SIZE: 3,
-    SPEED: 0.25,          
+    BASE_SPEED: 0.25,      // 基本速度
+    SLOW_SPEED: 0.12,      // 唐辛子時の速度   
     GRAVITY: 0.025,       
     FLOAT_GRAVITY: 0.008, 
     JUMP_FORCE: 0.45,
@@ -229,12 +250,16 @@ let gameState = {
     score: 0,
     lives: 3,
     hp: 100,
-    frameCount: 0
+    frameCount: 0,
+    slowTimer: 0 // 唐辛子効果時間
 };
+
+let currentSpeed = GAME_CONFIG.BASE_SPEED;
 
 let scene, camera, renderer;
 let piyo, world, objectManager, inputManager;
-let cloudTexture, cactusTexture; // 書割用テクスチャ
+// 書割用テクスチャ保持用
+let textureMap = {}; 
 
 // マテリアル（再利用のためここに保持）
 let matGroundA, matGroundB, matSpring;
@@ -243,32 +268,35 @@ let matGroundA, matGroundB, matSpring;
 
 function init() {
     try {
-        // 書割用テクスチャの生成
-        cloudTexture = createEmojiTexture("☁️", 128);
-        cactusTexture = createEmojiTexture("🌵", 128);
+        // テクスチャの一括生成
+        const emojis = {
+            'cloud': "☁️",
+            'cactus': "🌵",
+            'cake': "🍰",
+            'onigiri': "🍙",
+            'star': "⭐",
+            'chili': "🌶",
+            'ghost': "👻"
+        };
+        
+        for (const [key, emoji] of Object.entries(emojis)) {
+            textureMap[key] = createEmojiTexture(emoji, 128);
+        }
 
         // マテリアル初期化
         matGroundA = new THREE.MeshLambertMaterial({ color: COLORS.GROUND_A });
         matGroundB = new THREE.MeshLambertMaterial({ color: COLORS.GROUND_B });
         
-        // ジャンプ台用マテリアル（配列：BoxGeometryの各面に対応）
-        // 右(0), 左(1), 上(2), 下(3), 前(4), 後(5)
         const matSpringSide = new THREE.MeshLambertMaterial({ color: COLORS.SPRING_SIDE });
         const matSpringTop = new THREE.MeshLambertMaterial({ color: COLORS.SPRING_FLOOR });
         matSpring = [
-            matSpringSide, // Right
-            matSpringSide, // Left
-            matSpringTop,  // Top (オレンジ)
-            matSpringSide, // Bottom
-            matSpringSide, // Front
-            matSpringSide  // Back
+            matSpringSide, matSpringSide, matSpringTop, matSpringSide, matSpringSide, matSpringSide
         ];
 
         scene = new THREE.Scene();
         scene.background = new THREE.Color(COLORS.SKY);
         scene.fog = new THREE.Fog(COLORS.SKY, 20, 60);
 
-        // カメラ設定 (斜め45度見下ろし、コースを画面下に配置)
         camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
         camera.position.set(2, 10, 15); 
         camera.lookAt(2, 4, 0);
@@ -305,23 +333,17 @@ function init() {
     }
 }
 
-// 絵文字からテクスチャを生成するヘルパー関数
 function createEmojiTexture(emoji, size) {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext('2d');
-    
-    // 背景透明
     ctx.clearRect(0, 0, size, size);
-    
     ctx.font = `${size * 0.8}px serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(emoji, size / 2, size / 2 + size * 0.1);
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    return texture;
+    return new THREE.CanvasTexture(canvas);
 }
 
 function onWindowResize() {
@@ -336,83 +358,55 @@ class Piyo {
     constructor() {
         this.mesh = new THREE.Group();
         
-        // --- ヒヨコモデルの作成 ---
-        // 前向きをX軸プラスとする
-        
-        // 胴体 (黄色い球)
+        // --- ヒヨコモデル ---
         const bodyGeo = new THREE.SphereGeometry(0.6, 24, 24); 
         const bodyMat = new THREE.MeshLambertMaterial({ color: COLORS.PIYO_BODY });
         this.body = new THREE.Mesh(bodyGeo, bodyMat);
-        this.body.position.set(0, 0, 0);
         this.body.castShadow = true;
         this.mesh.add(this.body);
 
-        // 頭 (黄色い球) - 胴体の少し前(x+)・上(y+)に配置
         const headGeo = new THREE.SphereGeometry(0.5, 24, 24);
         this.head = new THREE.Mesh(headGeo, bodyMat);
         this.head.position.set(0.4, 0.7, 0); 
         this.head.castShadow = true;
         this.mesh.add(this.head);
 
-        // くちばし (大きく！)
         const beakGeo = new THREE.ConeGeometry(0.15, 0.4, 8);
         const beakMat = new THREE.MeshLambertMaterial({ color: COLORS.PIYO_BEAK });
         this.beak = new THREE.Mesh(beakGeo, beakMat);
-        this.beak.rotation.z = -Math.PI / 2; // 前に向ける
-        this.beak.position.set(0.9, 0.7, 0); // 頭のさらに前
+        this.beak.rotation.z = -Math.PI / 2; 
+        this.beak.position.set(0.9, 0.7, 0); 
         this.mesh.add(this.beak);
 
-        // 目
         const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
         const eyeMat = new THREE.MeshLambertMaterial({ color: COLORS.PIYO_EYE });
-        
         this.eyeL = new THREE.Mesh(eyeGeo, eyeMat);
         this.eyeL.position.set(0.75, 0.85, 0.25); 
         this.mesh.add(this.eyeL);
-
         this.eyeR = new THREE.Mesh(eyeGeo, eyeMat);
         this.eyeR.position.set(0.75, 0.85, -0.25); 
         this.mesh.add(this.eyeR);
 
-        // 翼 (Wings) - 楕円体
         const wingGeo = new THREE.SphereGeometry(0.4, 16, 16);
-        wingGeo.scale(1, 0.5, 0.2); // 平たくする
+        wingGeo.scale(1, 0.5, 0.2); 
         const wingL = new THREE.Mesh(wingGeo, bodyMat);
         wingL.position.set(0, 0.2, 0.5);
         wingL.rotation.y = -0.3;
         this.mesh.add(wingL);
-
         const wingR = new THREE.Mesh(wingGeo, bodyMat);
         wingR.position.set(0, 0.2, -0.5);
         wingR.rotation.y = 0.3;
         this.mesh.add(wingR);
 
-        // しっぽ (Tail) - 小さい円錐
         const tailGeo = new THREE.ConeGeometry(0.2, 0.4, 8);
         const tail = new THREE.Mesh(tailGeo, bodyMat);
-        tail.rotation.z = Math.PI / 2; // 後ろに向ける
-        tail.rotation.y = 0.3; // 少し跳ね上げる
+        tail.rotation.z = Math.PI / 2; 
+        tail.rotation.y = 0.3; 
         tail.position.set(-0.6, 0.2, 0);
         this.mesh.add(tail);
 
-
         scene.add(this.mesh);
-
-        this.lane = 1;
-        this.targetZ = this.getZFromLane(this.lane);
-        this.mesh.position.set(-4, 1, this.targetZ);
-        
-        this.yVelocity = 0;
-        this.isJumping = false;
-        this.isFloating = false; // ジャンプ台使用中
-        this.invincibleTimer = 0;
-        this.flashTimer = 0;
-        this.bounceOffset = 0;
-        this.onHole = false;
-        this.falling = false; // 落下中フラグ
-        this.respawning = false; // リスポーン待機中
-        
-        this.rotationSpeed = 0; // 回転用
+        this.reset();
     }
 
     getZFromLane(lane) {
@@ -432,7 +426,6 @@ class Piyo {
         this.falling = false;
         this.respawning = false;
         this.mesh.rotation.set(0,0,0);
-        this.rotationSpeed = 0;
         
         this.head.material.color.setHex(COLORS.PIYO_BODY);
         this.body.material.color.setHex(COLORS.PIYO_BODY);
@@ -480,7 +473,8 @@ class Piyo {
     heal(amount) {
         gameState.hp = Math.min(100, gameState.hp + amount);
         updateUI();
-        this.head.material.emissive.setHex(0x555555);
+        // 回復エフェクト（緑っぽく）
+        this.head.material.emissive.setHex(0x004400);
         setTimeout(() => { this.head.material.emissive.setHex(0x000000); }, 200);
     }
 
@@ -496,7 +490,6 @@ class Piyo {
             flashScreen(); 
 
             if (gameState.lives > 0) {
-                // 1.5秒後にリスポーン開始
                 this.respawning = true;
                 setTimeout(() => {
                     if(!gameState.isPlaying) return;
@@ -511,27 +504,21 @@ class Piyo {
     }
 
     respawn() {
-        // 上空から降ってくる演出
-        this.falling = false; // 落下死状態解除
-        
-        this.mesh.position.y = 12; // 画面上空
+        this.falling = false; 
+        this.mesh.position.y = 12; 
         this.mesh.position.z = this.getZFromLane(this.lane); 
-        this.mesh.rotation.set(0,0,0); // 回転リセット
-        
-        this.yVelocity = 0; // 自由落下開始
+        this.mesh.rotation.set(0,0,0); 
+        this.yVelocity = 0; 
         this.isJumping = true; 
         this.onHole = false;   
         this.isFloating = false;
-        
         gameState.hp = 100;
+        // リスポーン時は唐辛子効果をリセット
+        gameState.slowTimer = 0;
         updateUI();
-        
         this.setInvincible(180);
         
-        // 少し遅れて操作可能にする（着地した頃）
-        setTimeout(() => {
-            this.respawning = false;
-        }, 500);
+        setTimeout(() => { this.respawning = false; }, 500);
     }
 
     die() {
@@ -542,41 +529,41 @@ class Piyo {
     }
 
     update() {
-        // レーン移動補間
         this.targetZ = this.getZFromLane(this.lane);
-        this.mesh.position.z += (this.targetZ - this.mesh.position.z) * 0.2;
+        // スロー時はレーン移動も少しゆっくりに
+        const lerpFactor = (gameState.slowTimer > 0) ? 0.1 : 0.2;
+        this.mesh.position.z += (this.targetZ - this.mesh.position.z) * lerpFactor;
 
         if (this.isJumping) {
-            this.mesh.position.y += this.yVelocity;
-            const currentGravity = this.isFloating ? GAME_CONFIG.FLOAT_GRAVITY : GAME_CONFIG.GRAVITY;
-            this.yVelocity -= currentGravity;
+            // スロー時は重力やジャンプ速度も影響を受けるべきだが、
+            // 操作感を悪くしすぎないために、物理挙動自体はあまり変えず、
+            // 「世界の流れる速度」だけを変えるアプローチにする。
+            // ただし、スローモーション感を出すために少しだけゆっくり動かす
+            const timeScale = (gameState.slowTimer > 0) ? 0.7 : 1.0;
 
-            // ジャンプ中の回転演出（特にロングジャンプ時）
+            this.mesh.position.y += this.yVelocity * timeScale;
+            const currentGravity = this.isFloating ? GAME_CONFIG.FLOAT_GRAVITY : GAME_CONFIG.GRAVITY;
+            this.yVelocity -= currentGravity * timeScale;
+
             if (this.isFloating) {
-                // 前転＝Z軸をマイナス方向に回転
-                this.mesh.rotation.z -= 0.15;
+                this.mesh.rotation.z -= 0.15 * timeScale;
             } else {
-                // 通常ジャンプは姿勢を戻す
                 this.mesh.rotation.z += (0 - this.mesh.rotation.z) * 0.1;
             }
 
-            // 着地判定
             if (this.mesh.position.y <= 1 && !this.onHole && !this.falling) {
                 this.mesh.position.y = 1;
                 this.isJumping = false;
                 this.isFloating = false;
                 this.yVelocity = 0;
-                this.mesh.rotation.z = 0; // 着地で回転リセット
+                this.mesh.rotation.z = 0; 
             }
         } else {
-            // 地上にいるときのアニメーション
-            this.bounceOffset += 0.2;
+            this.bounceOffset = (this.bounceOffset || 0) + ((gameState.slowTimer > 0) ? 0.1 : 0.2);
             if (!this.onHole) {
-                // よちよち歩き
                 this.mesh.position.y = 1 + Math.abs(Math.sin(this.bounceOffset)) * 0.2;
                 this.mesh.rotation.z = Math.sin(this.bounceOffset) * 0.05; 
             } else {
-                // 穴落下中
                 this.mesh.position.y -= 0.3;
                 this.mesh.rotation.z += 0.2; 
                 if (this.mesh.position.y < -5 && !this.falling) {
@@ -589,24 +576,13 @@ class Piyo {
         if (this.invincibleTimer > 0) {
             this.invincibleTimer--;
             if (this.invincibleTimer % 10 < 5) {
-                this.body.material.color.setHex(COLORS.STAR);
-                this.head.material.color.setHex(COLORS.STAR);
+                this.body.material.color.setHex(0xFFFF66); // Star color
             } else {
                 this.body.material.color.setHex(COLORS.PIYO_BODY);
-                this.head.material.color.setHex(COLORS.PIYO_BODY);
             }
             if (this.invincibleTimer === 0) {
-                this.head.material.color.setHex(COLORS.PIYO_BODY);
                 this.body.material.color.setHex(COLORS.PIYO_BODY);
             }
-        }
-
-        // ダメージ点滅
-        if (this.flashTimer > 0) {
-            this.flashTimer--;
-            this.mesh.visible = (this.flashTimer % 4 < 2);
-        } else {
-            this.mesh.visible = true;
         }
     }
 }
@@ -628,12 +604,11 @@ class World {
     }
 
     setupScenery() {
-        // 背景の雲（書割）
         for(let i=0; i<15; i++) {
             const size = 5 + Math.random() * 5;
             const geo = new THREE.PlaneGeometry(size, size);
             const mat = new THREE.MeshBasicMaterial({ 
-                map: cloudTexture, 
+                map: textureMap['cloud'], 
                 transparent: true, 
                 opacity: 0.8,
                 side: THREE.DoubleSide
@@ -641,11 +616,10 @@ class World {
             const mesh = new THREE.Mesh(geo, mat);
             
             mesh.position.set(
-                Math.random() * 100 - 20, // X: 画面全体に散らす
-                2 + Math.random() * 10,   // Y: 空の高い位置
-                -10 - Math.random() * 10  // Z: コースの奥
+                Math.random() * 100 - 20, 
+                2 + Math.random() * 10,   
+                -10 - Math.random() * 10  
             );
-            
             mesh.userData = { speedRate: 0.05 + Math.random() * 0.1 };
             this.sceneryGroup.add(mesh);
         }
@@ -653,13 +627,9 @@ class World {
 
     createTile(gridX, laneIndex) {
         const size = GAME_CONFIG.TILE_SIZE;
-        // 厚み1のBox
         const geo = new THREE.BoxGeometry(size, 1, GAME_CONFIG.LANE_WIDTH - 0.1);
-        
-        // 初期マテリアル
         const isEven = (gridX + laneIndex) % 2 === 0;
         const mat = isEven ? matGroundA : matGroundB;
-
         const mesh = new THREE.Mesh(geo, mat);
         mesh.receiveShadow = true;
 
@@ -694,29 +664,24 @@ class World {
         tile.mesh.visible = true;
         tile.mesh.rotation.set(0, 0, 0);
         tile.mesh.position.y = -0.5;
-        // マテリアルを通常に戻す
         const isEven = (tile.gridX + tile.lane) % 2 === 0;
         tile.mesh.material = isEven ? matGroundA : matGroundB;
     }
 
     update() {
-        const speed = GAME_CONFIG.SPEED;
+        // currentSpeedを使用
+        const speed = currentSpeed;
         const size = GAME_CONFIG.TILE_SIZE;
-        // リサイクル地点を画面の左奥深くに変更してチラつき防止
         const limitX = -30; 
         
-        // 雲の移動
         this.sceneryGroup.children.forEach(cloud => {
             cloud.position.x -= speed * cloud.userData.speedRate;
-            if (cloud.position.x < -30) {
-                cloud.position.x = 80; 
-            }
+            if (cloud.position.x < -30) cloud.position.x = 80; 
         });
 
         this.tiles.forEach(tile => {
             tile.mesh.position.x -= speed;
             if (tile.mesh.position.x < limitX) {
-                // 右端へリサイクル
                 tile.mesh.position.x += (this.cols * size);
                 this.resetTileType(tile);
                 objectManager.spawnObjectOnTile(tile);
@@ -748,38 +713,50 @@ class ObjectManager {
         this.objects = [];
     }
 
+    // Emojiテクスチャを使った板ポリゴンを生成する共通関数
+    createBoardMesh(textureName, scale = 1.0) {
+        const mesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(2 * scale, 2 * scale),
+            new THREE.MeshBasicMaterial({ 
+                map: textureMap[textureName], 
+                transparent: true, 
+                alphaTest: 0.5, 
+                side: THREE.DoubleSide
+            })
+        );
+        // 影を落とすためにDepthMaterialを設定
+        mesh.customDepthMaterial = new THREE.MeshDepthMaterial({
+            depthPacking: THREE.RGBADepthPacking,
+            map: textureMap[textureName],
+            alphaTest: 0.5
+        });
+        mesh.castShadow = true;
+        return mesh;
+    }
+
     createMesh(type) {
         let mesh;
-        if (type === 'spike') {
-            // 書割のサボテン
-            mesh = new THREE.Mesh(
-                new THREE.PlaneGeometry(2, 2),
-                new THREE.MeshBasicMaterial({ 
-                    map: cactusTexture, 
-                    transparent: true, 
-                    alphaTest: 0.5, 
-                    side: THREE.DoubleSide
-                })
-            );
-            mesh.customDepthMaterial = new THREE.MeshDepthMaterial({
-                depthPacking: THREE.RGBADepthPacking,
-                map: cactusTexture,
-                alphaTest: 0.5
-            });
-        } else if (type === 'heart') {
-            mesh = new THREE.Mesh(
-                new THREE.TorusGeometry(0.3, 0.12, 8, 16), 
-                new THREE.MeshLambertMaterial({color: COLORS.HEART})
-            );
+        if (type === 'cactus') {
+            mesh = this.createBoardMesh('cactus');
+        } else if (type === 'cake') {
+            mesh = this.createBoardMesh('cake', 0.8);
+        } else if (type === 'onigiri') {
+            mesh = this.createBoardMesh('onigiri', 0.8);
         } else if (type === 'star') {
-            mesh = new THREE.Mesh(
-                new THREE.TorusGeometry(0.3, 0.12, 8, 16), 
-                new THREE.MeshLambertMaterial({color: COLORS.STAR, emissive: 0x333300})
-            );
+            mesh = this.createBoardMesh('star', 0.8);
+        } else if (type === 'chili') {
+            mesh = this.createBoardMesh('chili', 0.8);
+        } else if (type === 'ghost') {
+            mesh = this.createBoardMesh('ghost', 1.0);
+        } else if (type === 'moving_block') {
+            const geometry = new THREE.BoxGeometry(1.8, 1.8, 1.2);
+            const matBase = new THREE.MeshLambertMaterial({ color: COLORS.BLOCK });
+            const matDark = new THREE.MeshLambertMaterial({ color: 0x483D8B });
+            mesh = new THREE.Mesh(geometry, [matBase, matBase, matDark, matDark, matBase, matBase]);
+            mesh.castShadow = true;
         }
         
         if(mesh) {
-            mesh.castShadow = true;
             this.objGroup.add(mesh);
         }
         return mesh;
@@ -788,33 +765,43 @@ class ObjectManager {
     spawnObjectOnTile(tile) {
         const rand = Math.random();
 
-        // 穴生成 
+        // 1. 穴 (3%)
         if (rand < 0.03) {
             tile.type = 'hole';
             tile.mesh.visible = false; 
             return; 
         }
         
-        // ジャンプ台 (Spring)
+        // 2. ジャンプ台 (3%)
         if (rand < 0.06) {
             tile.type = 'spring';
-            // 立体的にするために専用のマテリアル配列（上面オレンジ・側面濃い色）を適用
             tile.mesh.material = matSpring;
             tile.mesh.rotation.z = 0.3; 
             tile.mesh.position.y = 0; 
             return;
         }
 
-        // オブジェクト生成
-        if (rand < 0.20) {
+        // 3. オブジェクト生成
+        // 処理落ちを防ぐため、出現率を少し抑える (合計25%程度に)
+        if (rand < 0.31) { 
             let type = null;
             const subRand = Math.random();
-            if (subRand < 0.3) {
-                type = 'spike'; 
-            } else {
-                const needHeal = gameState.hp <= 50;
-                if (needHeal && Math.random() < 0.6) type = 'heart';
-                else type = Math.random() < 0.7 ? 'heart' : 'star';
+            
+            // バランス調整
+            // 敵: サボテン(20%), ブロック(10%), オバケ(10%) -> 合計40%
+            // アイテム: ケーキ(30%), おにぎり(15%), スター(5%), 唐辛子(10%) -> 合計60%
+
+            if (subRand < 0.20) type = 'cactus';
+            else if (subRand < 0.30) type = 'moving_block';
+            else if (subRand < 0.40) type = 'ghost';
+            else if (subRand < 0.70) type = 'cake';
+            else if (subRand < 0.85) type = 'onigiri';
+            else if (subRand < 0.90) type = 'star';
+            else type = 'chili';
+
+            // HP満タンならおにぎりをケーキに変える
+            if (type === 'onigiri' && gameState.hp >= 100) {
+                type = 'cake';
             }
 
             if (!type) return;
@@ -833,24 +820,48 @@ class ObjectManager {
             objData.mesh.position.set(tile.mesh.position.x, 0.5, tile.mesh.position.z);
             objData.mesh.rotation.set(0,0,0);
             
-            if (type === 'heart' || type === 'star') {
+            // 高さ・初期値調整
+            if (type === 'cake' || type === 'onigiri' || type === 'star' || type === 'chili') {
                 objData.mesh.position.y = 1.0;
-            } else if (type === 'spike') {
+            } else if (type === 'cactus') {
                 objData.mesh.position.y = 0.8; 
+            } else if (type === 'ghost') {
+                objData.mesh.position.y = 1.5 + Math.random(); // 空中
+                objData.phase = Math.random() * Math.PI * 2;
+            } else if (type === 'moving_block') {
+                objData.mesh.position.y = 1.2;
+                objData.phase = Math.random() * Math.PI * 2;
             }
         }
     }
 
     update() {
-        const speed = GAME_CONFIG.SPEED;
+        const speed = currentSpeed; // グローバル速度を使用
+        
         for (let i = this.objects.length - 1; i >= 0; i--) {
             const obj = this.objects[i];
             obj.mesh.position.x -= speed;
 
             // アニメーション
-            if (obj.type === 'heart' || obj.type === 'star') {
+            if (['cake', 'onigiri', 'star', 'chili'].includes(obj.type)) {
+                // アイテムはくるくる回る
                 obj.mesh.rotation.y += 0.05;
-                obj.mesh.position.y = 1.0 + Math.sin(gameState.frameCount * 0.1) * 0.2;
+                obj.mesh.position.y = 1.0 + Math.sin(gameState.frameCount * 0.1 + obj.mesh.id) * 0.2;
+            } 
+            else if (obj.type === 'moving_block') {
+                // ブロックはゆっくり左右移動
+                const zOffset = Math.sin(gameState.frameCount * 0.02 + obj.phase) * 6;
+                obj.mesh.position.z = zOffset;
+                obj.mesh.rotation.x += 0.03;
+                obj.mesh.rotation.y += 0.03;
+            }
+            else if (obj.type === 'ghost') {
+                // オバケは不規則に浮遊
+                const t = gameState.frameCount * 0.03 + obj.phase;
+                obj.mesh.position.y = 2.0 + Math.sin(t) * 0.8; 
+                obj.mesh.position.z += Math.cos(t * 1.5) * 0.05; // 少しふらふら横にも動く
+                // 常にカメラの方（少し斜め）を向くように簡易ビルボード
+                obj.mesh.lookAt(camera.position); 
             }
 
             if (obj.mesh.position.x < -30) this.deactivate(obj, i);
@@ -871,19 +882,28 @@ class ObjectManager {
             const obj = this.objects[i];
             const oPos = obj.mesh.position;
             
-            // 1. レーンチェック
-            const dz = Math.abs(pPos.z - oPos.z);
-            if (dz > 1.2) continue; 
-
-            // 2. 前後距離チェック
+            // 1. 前後距離 (X)
             const dx = Math.abs(pPos.x - oPos.x);
-            if (dx > 1.3) continue;
+            let hitX = 1.0;
+            if (obj.type === 'moving_block') hitX = 1.6;
 
-            // 3. 高さチェック
+            if (dx > hitX) continue;
+
+            // 2. 左右距離 (Z)
+            const dz = Math.abs(pPos.z - oPos.z);
+            let hitZ = 1.2;
+            if (obj.type === 'moving_block') hitZ = 1.8;
+            if (obj.type === 'ghost') hitZ = 1.0;
+
+            if (dz > hitZ) continue; 
+
+            // 3. 高さ (Y)
             const dy = Math.abs(pPos.y - oPos.y);
             let hitY = 1.2; 
-            if (obj.type === 'spike') hitY = 1.0; 
-            if (obj.type === 'heart' || obj.type === 'star') hitY = 2.0; 
+            if (obj.type === 'cactus') hitY = 1.0; 
+            if (['cake', 'onigiri', 'star', 'chili'].includes(obj.type)) hitY = 1.5;
+            if (obj.type === 'moving_block') hitY = 1.8;
+            if (obj.type === 'ghost') hitY = 1.0;
 
             if (dy > hitY) continue; 
 
@@ -893,15 +913,31 @@ class ObjectManager {
 
     resolveCollision(player, obj, index) {
         const type = obj.type;
-        if (type === 'heart') {
-            player.heal(25);
+
+        // アイテム系
+        if (type === 'cake') {
+            gameState.score += 200; 
+            updateUI();
+            this.deactivate(obj, index);
+        } else if (type === 'onigiri') {
+            player.heal(30);
             this.deactivate(obj, index);
         } else if (type === 'star') {
-            player.setInvincible();
+            player.setInvincible(300); // 5秒
             this.deactivate(obj, index);
-        } else if (type === 'spike') {
+        } else if (type === 'chili') {
+            // 唐辛子：スピードダウン
+            gameState.slowTimer = 180; // 3秒間
+            document.getElementById('slow-overlay').style.opacity = 1;
+            this.deactivate(obj, index);
+        } 
+        // 敵系
+        else if (type === 'cactus' || type === 'moving_block' || type === 'ghost') {
             if (player.invincibleTimer > 0) return;
-            player.damage(25);
+            
+            // 衝突時のダメージ
+            if(type === 'moving_block') player.damage(35);
+            else player.damage(25);
         }
     }
 }
@@ -956,21 +992,12 @@ class InputManager {
         const dy = y2 - y1;
         const dist = Math.sqrt(dx*dx + dy*dy);
 
-        // タップ判定 (移動距離が小さい)
         if (dist < 30) {
             piyo.jump('normal');
         } else {
-            // スワイプ判定
-            // 上下スワイプでレーン移動に変更
-            // 上(dy < 0): 奥へ (Lane - 1)
-            // 下(dy > 0): 手前へ (Lane + 1)
-            
             if (Math.abs(dy) > Math.abs(dx)) {
-                if (dy < 0) { // 上スワイプ
-                    piyo.moveLane(-1); // 奥へ
-                } else { // 下スワイプ
-                    piyo.moveLane(1); // 手前へ
-                }
+                if (dy < 0) piyo.moveLane(-1); 
+                else piyo.moveLane(1); 
             }
         }
     }
@@ -987,6 +1014,8 @@ function startGame() {
     gameState.lives = 3;
     gameState.hp = 100;
     gameState.frameCount = 0;
+    gameState.slowTimer = 0;
+    currentSpeed = GAME_CONFIG.BASE_SPEED;
 
     piyo.reset();
     world.reset();
@@ -1006,6 +1035,8 @@ function gameOver() {
     document.getElementById('final-score').innerText = Math.floor(gameState.score);
     
     document.getElementById('start-btn').innerText = "もう一度";
+    
+    document.getElementById('slow-overlay').style.opacity = 0;
 }
 
 function updateUI() {
@@ -1029,10 +1060,7 @@ function checkTileGimmick() {
     
     if (tile) {
         piyo.onHole = (tile.type === 'hole');
-
-        if (tile.type === 'spring') {
-            piyo.jump('long');
-        }
+        if (tile.type === 'spring') piyo.jump('long');
     } else {
         piyo.onHole = false;
     }
@@ -1044,9 +1072,18 @@ function animate() {
     if (gameState.isPlaying) {
         gameState.frameCount++;
         
-        if (gameState.frameCount % 10 === 0) {
-            gameState.score += 1;
-            updateUI();
+        // 唐辛子によるスロー効果の管理
+        if (gameState.slowTimer > 0) {
+            gameState.slowTimer--;
+            // 目標速度に向かって徐々に変化（急激な変化を防ぐ）
+            currentSpeed += (GAME_CONFIG.SLOW_SPEED - currentSpeed) * 0.1;
+            
+            if (gameState.slowTimer === 0) {
+                document.getElementById('slow-overlay').style.opacity = 0;
+            }
+        } else {
+            // 通常速度に戻る
+            currentSpeed += (GAME_CONFIG.BASE_SPEED - currentSpeed) * 0.1;
         }
 
         world.update();
@@ -1061,7 +1098,6 @@ function animate() {
     }
 }
 
-// スタート
 init();
 
 </script>
