@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="format-detection" content="telephone=no">
     
-    <title>ぴよランナー（軽量版・iPhone調整）</title>
+    <title>ぴよランナー</title>
     <style>
         /* iOS特有のバウンド（ラバーバンド）を完全に防ぐ設定 */
         html, body {
@@ -57,7 +57,7 @@
             display: block;
         }
         
-        /* Canvasを強制的に引き伸ばす（解像度を下げた時の対策） */
+        /* Canvasを強制的に引き伸ばす */
         #game-container canvas {
             width: 100% !important;
             height: 100% !important;
@@ -123,6 +123,27 @@
             padding-right: env(safe-area-inset-right);
         }
 
+        /* ぶっぶーメッセージ */
+        #bubbu-msg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            font-size: 60px;
+            font-weight: 900;
+            color: #ff0000;
+            text-shadow: 3px 3px 0 #fff, -1px -1px 0 #fff;
+            white-space: nowrap;
+            opacity: 0;
+            z-index: 50;
+            pointer-events: none;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.2s;
+        }
+        #bubbu-msg.show {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+        }
+
         /* 中央メッセージ */
         #overlay {
             position: absolute;
@@ -149,23 +170,14 @@
 
         .instructions {
             color: white;
-            font-size: 14px;
+            font-size: 16px;
             text-align: center;
-            line-height: 1.5;
+            line-height: 1.8;
             margin-bottom: 20px;
             background: rgba(0, 0, 0, 0.5); 
-            padding: 15px;
+            padding: 20px;
             border-radius: 10px;
-            max-width: 90%;
-        }
-
-        .item-list {
-            display: grid;
-            grid-template-columns: auto 1fr;
-            gap: 2px 10px;
-            text-align: left;
-            margin-top: 5px;
-            font-size: 12px;
+            min-width: 280px;
         }
 
         .btn-group {
@@ -251,21 +263,15 @@
                 </div>
             </div>
             <div id="score-board">0</div>
+            <div id="bubbu-msg">ぶっぶー🙅‍♂️</div>
         </div>
 
         <div id="overlay">
             <h1 id="title-text">ぴよランナー</h1>
             <div class="instructions" id="instructions">
-                🏎️ タイヤを取るとスピードアップ＆しばらく無敵！<br>
-                👉 その間はタップでジャンプができなくなるので注意！<br><br>
-                👆 タップ：ジャンプ（タイヤ中は不可）<br>
+                👆 タップ：ジャンプ<br>
                 ↕️ 上下スワイプ：レーン移動<br>
-                <div class="item-list">
-                    <span>🍰/🍙</span><span>スコア&回復</span>
-                    <span>🏎️</span><span>タイヤ：爆走＆無敵（ジャンプ不可）</span>
-                    <span>🌶</span><span>唐辛子：5秒間ダウン...</span>
-                    <span>🔥/👻</span><span>敵：ぶつかるとダメージ</span>
-                </div>
+                🍙 おにぎり：体力回復
             </div>
             <div class="instructions hidden" id="result-area">
                 SCORE: <span id="final-score">0</span>
@@ -372,9 +378,8 @@ const soundManager = new SoundManager();
 
 const COLORS = {
     SKY: 0x87CEEB,
-    // チェッカー：少しマイルドな緑ペア
-    GROUND_A: 0xA8E6A1, // 明るめの柔らかい緑
-    GROUND_B: 0x66C97F, // 少し濃い黄緑
+    GROUND_A: 0xA8E6A1, 
+    GROUND_B: 0x66C97F, 
     HOLE: 0x222222,
     SPRING_FLOOR: 0xFFA500, 
     SPRING_SIDE: 0xCD8500,  
@@ -386,19 +391,21 @@ const COLORS = {
     TIRE_WHEEL: 0xCCCCCC
 };
 
+// 基本速度
+const BASE_SPEED = IS_IOS ? 0.32 : 0.25;
+
 const GAME_CONFIG = {
     LANE_COUNT: 4,
     LANE_WIDTH: 2.5,
     TILE_SIZE: 3,
-    // iPhone だけ少し速めにして「まったり感」を軽減
-    BASE_SPEED: IS_IOS ? 0.32 : 0.25,
-    TIRE_SPEED: IS_IOS ? 0.50 : 0.4,
-    SLOW_SPEED: 0.1,
+    BASE_SPEED: BASE_SPEED,
+    TIRE_SPEED: BASE_SPEED * 1.3, // 130%
+    SLOW_SPEED: BASE_SPEED * 0.8, // 80%
     GRAVITY: 0.025,        
     FLOAT_GRAVITY: 0.008, 
     JUMP_FORCE: 0.45,
     LONG_JUMP_FORCE: 0.35, 
-    TIRE_TIME: 300,
+    TIRE_TIME: 1200, // 20秒 (60fps * 20)
     SLOW_TIME: 300
 };
 
@@ -448,7 +455,6 @@ function init() {
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(COLORS.SKY);
-    // fog は削除（軽量化＆見た目ほぼ変化なし）
 
     camera = new THREE.PerspectiveCamera(50, getAspect(), 0.1, 80);
     camera.position.set(2, 8, 14); 
@@ -512,7 +518,6 @@ function resizeRenderer() {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     
-    // ぼやけ対策：先に pixelRatio を設定し、iPhone では 1.0 までに抑える
     const dpr = window.devicePixelRatio || 1;
     if (IS_IOS) {
         renderer.setPixelRatio(Math.min(dpr, 1.0));
@@ -520,7 +525,6 @@ function resizeRenderer() {
         renderer.setPixelRatio(Math.min(dpr, 1.5));
     }
 
-    // wrapper の実サイズに合わせて内部バッファも揃える（ホーム追加時の伸び対策）
     renderer.setSize(w, h, false);
 }
 
@@ -720,8 +724,8 @@ class Piyo {
 
     jump(forceType = 'normal') {
         if (!gameState.isPlaying || this.falling || this.respawning) return;
-        if (gameState.tireTimer > 0 && forceType === 'normal') return;
-
+        
+        // 修正: タイヤ中でもジャンプ可能にするためガードを削除
         if (!this.isJumping || forceType === 'long') {
             soundManager.playTone('jump');
             this.isJumping = true;
@@ -738,11 +742,7 @@ class Piyo {
     activateTire() {
         gameState.tireTimer = GAME_CONFIG.TIRE_TIME;
         this.tireGroup.visible = true;
-        if (this.isJumping) {
-            this.isJumping = false;
-            this.mesh.position.y = 1;
-            this.yVelocity = 0;
-        }
+        // 修正: ジャンプをキャンセルしない
         soundManager.playTone('powerup');
         updateOverlayEffect('blue');
     }
@@ -753,31 +753,29 @@ class Piyo {
         gameState.hp -= amount;
         updateUI();
         flashScreen();
+        // showBubbu(); // 削除: ダメージのみでは表示しない
         soundManager.playTone('damage');
         
         particleSystem.emit(this.mesh.position, 'impact'); 
 
-        if (gameState.tireTimer > 0) {
-            this.setInvincible(40);
-        } else {
-            this.setInvincible(60); 
-        }
+        this.setInvincible(60); 
 
         if (gameState.hp <= 0) {
             gameState.lives--;
             gameState.hp = 100;
-            if (gameState.tireTimer > 0) {
-                 gameState.tireTimer = 0;
-                 this.tireGroup.visible = false;
-                 updateOverlayEffect(null);
-            }
             updateUI();
+            showBubbu(); // 追加: ライフが減った時のみ表示
 
             if (gameState.lives <= 0) {
                 this.die();
             } else {
                 this.respawning = true;
                 this.mesh.visible = false; 
+                if (gameState.tireTimer > 0) {
+                     gameState.tireTimer = 0;
+                     this.tireGroup.visible = false;
+                     updateOverlayEffect(null);
+                }
                 setTimeout(() => {
                     if(!gameState.isPlaying) return;
                     this.respawn();
@@ -803,10 +801,16 @@ class Piyo {
             gameState.lives--;
             updateUI();
             flashScreen(); 
+            showBubbu(); // 落下時はライフが減るので表示する
             soundManager.playTone('damage');
 
             if (gameState.lives > 0) {
                 this.respawning = true;
+                if (gameState.tireTimer > 0) {
+                     gameState.tireTimer = 0;
+                     this.tireGroup.visible = false;
+                     updateOverlayEffect(null);
+                }
                 setTimeout(() => {
                     if(!gameState.isPlaying) return;
                     this.respawn();
@@ -932,6 +936,10 @@ class World {
         scene.add(this.sceneryGroup);
         this.setupScenery();
         this.cols = 20; 
+        
+        // 穴の連続生成用予約フラグ（レーンごと）
+        this.holeReservations = [false, false, false, false]; 
+
         for (let x = 0; x < this.cols; x++) {
             for (let z = 0; z < GAME_CONFIG.LANE_COUNT; z++) {
                 this.createTile(x, z);
@@ -986,6 +994,7 @@ class World {
     }
 
     reset() {
+        this.holeReservations = [false, false, false, false];
         this.tiles.forEach(t => {
             const size = GAME_CONFIG.TILE_SIZE;
             const xStart = -10;
@@ -1078,10 +1087,24 @@ class ObjectManager {
             wheel.rotateX(Math.PI/2);
             mesh.add(wheel);
         } else if (type === 'moving_block') {
+            const group = new THREE.Group();
+            
+            // ブロック本体
             const geometry = new THREE.BoxGeometry(1.8, 1.8, 2.4);
             const matBase = new THREE.MeshLambertMaterial({ color: COLORS.BLOCK });
             const matDark = new THREE.MeshLambertMaterial({ color: 0x483D8B });
-            mesh = new THREE.Mesh(geometry, [matBase, matBase, matDark, matDark, matBase, matBase]);
+            const block = new THREE.Mesh(geometry, [matBase, matBase, matDark, matDark, matBase, matBase]);
+            group.add(block);
+
+            // 疑似影（地面に落とす）
+            const shadowGeo = new THREE.PlaneGeometry(1.8, 2.4);
+            const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
+            const shadow = new THREE.Mesh(shadowGeo, shadowMat);
+            shadow.rotation.x = -Math.PI / 2;
+            shadow.name = "blockShadow"; // 識別用
+            group.add(shadow);
+
+            mesh = group;
         } else if (type === 'ghost_sign') {
             const group = new THREE.Group();
             const stickGeo = new THREE.CylinderGeometry(0.1, 0.1, 10, 4);
@@ -1106,15 +1129,26 @@ class ObjectManager {
     }
 
     spawnObjectOnTile(tile) {
-        // オブジェクト上限を 8 個に制限
         if (this.objects.filter(o => o.active).length >= 8) return;
+
+        // 穴の予約チェック（2連続用）
+        if (world.holeReservations[tile.lane]) {
+            tile.type = 'hole';
+            tile.mesh.visible = false;
+            world.holeReservations[tile.lane] = false; // 予約消化
+            return;
+        }
 
         const rand = Math.random();
 
-        // 1. 穴
+        // 1. 穴 (確率0.02)
         if (rand < 0.02) {
             tile.type = 'hole';
-            tile.mesh.visible = false; 
+            tile.mesh.visible = false;
+            // 50%で次も穴にする予約
+            if (Math.random() < 0.5) {
+                world.holeReservations[tile.lane] = true;
+            }
             return; 
         }
         
@@ -1143,7 +1177,6 @@ class ObjectManager {
             if (type === 'onigiri' && gameState.hp >= 95) type = 'cake';
 
             if (type === 'fire' && Math.random() < 0.3 && tile.lane < GAME_CONFIG.LANE_COUNT - 1) {
-                // 2個生成のときも上限 8 を超えないように調整
                 if (this.objects.filter(o => o.active).length >= 7) { 
                     this.spawnSingle(type, tile.mesh.position.x, tile.mesh.position.z);
                     return;
@@ -1181,13 +1214,20 @@ class ObjectManager {
         } else if (type === 'fire') {
             objData.mesh.position.y = 0.8; 
         } else if (type === 'moving_block') {
-            // 直方体ブロック：その場に固定 & 高さランダム（1段目/2段目/3段目）
+            // 直方体ブロック：その場に固定 & 高さランダム
             const tiers = [1.2, 3.0, 5.0];
             const y = tiers[Math.floor(Math.random() * tiers.length)];
             objData.mesh.position.y = y;
-            // 左右位置も少しランダム（レーン中心からずらす）
             const laneOffset = (Math.random() - 0.5) * (GAME_CONFIG.LANE_WIDTH * 0.8);
             objData.mesh.position.z += laneOffset;
+
+            // 影の位置調整（ローカル座標でYを逆算して地面に置く）
+            const shadow = objData.mesh.children.find(c => c.name === "blockShadow");
+            if (shadow) {
+                // 地面(y=0)付近に来るように、親のy座標分引く
+                shadow.position.y = -y + 0.05; 
+            }
+
         } else if (type === 'ghost_sign') {
             objData.mesh.position.y = -12;
         }
@@ -1203,7 +1243,6 @@ class ObjectManager {
             if (['cake', 'onigiri', 'chili', 'tire'].includes(obj.type)) {
                  obj.mesh.position.y = 1.0 + Math.sin(gameState.frameCount * 0.1 + obj.mesh.id) * 0.1;
             } 
-            // moving_block はその場に固定（x方向に流れるだけ）
             else if (obj.type === 'fire') {
                 obj.mesh.lookAt(camera.position);
             }
@@ -1274,12 +1313,13 @@ class ObjectManager {
 
         if (type === 'cake') {
             soundManager.playTone('coin');
-            gameState.score += 200; 
+            gameState.score += 300; // ケーキはスコア高め
+            // 修正：ケーキは回復しない
             updateUI();
             this.deactivate(obj, index);
         } else if (type === 'onigiri') {
             soundManager.playTone('coin');
-            player.heal(30);
+            player.heal(30); // おにぎりは回復
             this.deactivate(obj, index);
         } else if (type === 'tire') {
             player.activateTire();
@@ -1422,6 +1462,14 @@ function updateUI() {
     document.getElementById('lives').innerText = heartStr;
     document.getElementById('hp-bar').style.width = Math.max(0, gameState.hp) + "%";
     document.getElementById('score-board').innerText = Math.floor(gameState.score);
+}
+
+function showBubbu() {
+    const el = document.getElementById('bubbu-msg');
+    el.classList.add('show');
+    setTimeout(() => {
+        el.classList.remove('show');
+    }, 800);
 }
 
 function flashScreen() {
