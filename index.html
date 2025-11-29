@@ -2,17 +2,29 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- iOS Standalone Mode Optimizations -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="format-detection" content="telephone=no">
+    
     <title>ぴよランナー（軽量版）</title>
     <style>
-        body {
+        /* iOS特有のバウンド（ラバーバンド）を完全に防ぐ設定 */
+        html, body {
+            width: 100%;
+            height: 100%;
             margin: 0;
+            padding: 0;
             overflow: hidden;
+            position: fixed; /* iOSで画面が揺れるのを防ぐ強力な固定 */
             font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
             background-color: #333;
             user-select: none;
             -webkit-user-select: none;
             touch-action: none;
+            overscroll-behavior: none; /* スクロール連鎖の停止 */
+            -webkit-tap-highlight-color: transparent;
         }
 
         /* ゲーム全体を包むラッパー */
@@ -64,12 +76,13 @@
             display: flex;
             flex-direction: column;
             gap: 5px;
+            /* セーフエリア対応（ノッチ対策） */
+            padding-top: env(safe-area-inset-top);
+            padding-left: env(safe-area-inset-left);
         }
 
         #lives {
             font-size: 24px;
-            /* 軽量化: ドロップシャドウ削除 */
-            /* filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.5)); */
             letter-spacing: 5px;
         }
 
@@ -98,8 +111,10 @@
             font-size: 32px;
             font-weight: bold;
             color: #fff;
-            /* 軽量化: テキストシャドウ簡素化 */
             text-shadow: 1px 1px 0px rgba(0,0,0,0.5);
+            /* セーフエリア対応 */
+            padding-top: env(safe-area-inset-top);
+            padding-right: env(safe-area-inset-right);
         }
 
         /* 中央メッセージ */
@@ -132,7 +147,6 @@
             text-align: center;
             line-height: 1.5;
             margin-bottom: 20px;
-            /* 軽量化: backdrop-filter削除 */
             background: rgba(0, 0, 0, 0.5); 
             padding: 15px;
             border-radius: 10px;
@@ -162,10 +176,11 @@
             border: none;
             border-radius: 50px;
             cursor: pointer;
-            /* 軽量化: box-shadow削除 */
             border-bottom: 4px solid #2E7D32; 
             transition: transform 0.1s;
             pointer-events: auto;
+            /* タップ時のハイライト削除 */
+            -webkit-tap-highlight-color: transparent;
         }
 
         button:active {
@@ -209,7 +224,6 @@
             opacity: 0;
             transition: opacity 0.3s;
             background: transparent;
-            /* GPU合成レイヤーを分離して高速化 */
             will-change: opacity, background-color; 
         }
     </style>
@@ -365,7 +379,7 @@ const GAME_CONFIG = {
     LANE_WIDTH: 2.5,
     TILE_SIZE: 3,
     BASE_SPEED: 0.25,
-    TIRE_SPEED: 0.6,
+    TIRE_SPEED: 0.4, // 速度を0.5から0.4へマイルドに
     SLOW_SPEED: 0.1,
     GRAVITY: 0.025,        
     FLOAT_GRAVITY: 0.008, 
@@ -403,7 +417,9 @@ function init() {
         'onigiri': "🍙",
         'chili': "🌶️",
         'fire': "🔥",
-        'ghost': "👻" 
+        'ghost': "👻",
+        'impact': "💥", // 衝突用
+        'sparkle': "✨"  // 取得用
     };
     for (const [key, emoji] of Object.entries(emojis)) {
         textureMap[key] = createEmojiTexture(emoji, 64);
@@ -491,9 +507,13 @@ function resizeRenderer() {
     
     renderer.setSize(w, h);
     
-    // 【軽量化3】ピクセル比率を最大1.5に制限
-    // 最近のスマホは3.0など高すぎるため、計算負荷を抑える
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    // 【軽量化3：iPhoneホーム画面対策】
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIOS) {
+        renderer.setPixelRatio(1.0); 
+    } else {
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    }
 }
 
 function createEmojiTexture(emoji, size) {
@@ -512,7 +532,7 @@ function createEmojiTexture(emoji, size) {
     return tex;
 }
 
-// --- 4. Particle System ---
+// --- 4. Particle System (Revised: Single Pop Effect) ---
 class ParticleSystem {
     constructor() {
         this.particles = [];
@@ -520,48 +540,44 @@ class ParticleSystem {
         this.meshGroup = new THREE.Group();
         scene.add(this.meshGroup);
 
-        // BoxGeometryは軽いが、更に軽くするためにPlaneでも良いが、Boxのままで数を抑える
-        this.boxGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+        this.planeGeo = new THREE.PlaneGeometry(2.0, 2.0); // 少し大きめに
         this.matCache = {}; 
     }
 
-    getMaterial(color) {
-        if (!this.matCache[color]) {
-            this.matCache[color] = new THREE.MeshBasicMaterial({ color: color, transparent: true });
+    getMaterial(textureName) {
+        if (!this.matCache[textureName]) {
+            this.matCache[textureName] = new THREE.MeshBasicMaterial({ 
+                map: textureMap[textureName], 
+                transparent: true, 
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
         }
-        return this.matCache[color];
+        return this.matCache[textureName];
     }
 
-    emit(position, color, count = 5) {
-        const mat = this.getMaterial(color);
-        const geo = this.boxGeo;
-
-        for(let i=0; i<count; i++) {
-            let p = this.pool.pop();
-            if (!p) {
-                const mesh = new THREE.Mesh(geo, mat);
-                this.meshGroup.add(mesh);
-                p = { mesh: mesh, vel: new THREE.Vector3(), life: 0, active: false };
-            }
-
-            p.mesh.material = mat;
-            p.mesh.position.copy(position);
-            p.mesh.position.x += (Math.random() - 0.5) * 1.0;
-            p.mesh.position.y += (Math.random() - 0.5) * 1.0;
-            p.mesh.position.z += (Math.random() - 0.5) * 1.0;
-            p.mesh.visible = true;
-            p.mesh.scale.setScalar(1);
-            p.mesh.rotation.set(0,0,0);
-
-            p.vel.set(
-                (Math.random() - 0.5) * 0.3,
-                Math.random() * 0.3,
-                (Math.random() - 0.5) * 0.3
-            );
-            p.life = 1.0;
-            p.active = true;
-            this.particles.push(p);
+    emit(position, type) {
+        // type: 'impact' or 'sparkle'
+        // 1回につき1枚だけ出す
+        let p = this.pool.pop();
+        if (!p) {
+            const mesh = new THREE.Mesh(this.planeGeo, this.getMaterial(type));
+            this.meshGroup.add(mesh);
+            p = { mesh: mesh, life: 0, active: false };
         }
+
+        p.mesh.material = this.getMaterial(type);
+        p.mesh.position.copy(position);
+        p.mesh.position.y += 1.0; // 少し上に
+        p.mesh.visible = true;
+        p.mesh.scale.setScalar(0.5);
+        p.mesh.rotation.z = (Math.random() - 0.5); // 少し傾ける
+        // カメラに向ける
+        p.mesh.lookAt(camera.position);
+
+        p.life = 1.0;
+        p.active = true;
+        this.particles.push(p);
     }
 
     update() {
@@ -569,10 +585,12 @@ class ParticleSystem {
             const p = this.particles[i];
             if (!p.active) continue;
 
-            p.life -= 0.08; // 寿命を少し早くして回転率を上げる
-            p.mesh.position.add(p.vel);
-            p.mesh.rotation.x += 0.2;
-            p.mesh.scale.setScalar(p.life);
+            p.life -= 0.08; 
+            // 拡大しながら消える
+            const scale = 0.5 + (1.0 - p.life) * 1.5; 
+            p.mesh.scale.setScalar(scale);
+            p.mesh.material.opacity = p.life;
+            p.mesh.position.y += 0.05; // 少し上昇
             
             if (p.life <= 0) {
                 p.active = false;
@@ -656,7 +674,8 @@ class Piyo {
 
         this.tireGroup = new THREE.Group();
         this.tireGroup.visible = false;
-        const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 6); // 分割数減
+        // タイヤを八角柱に変更 (segments: 6 -> 8)
+        const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 8); 
         tireGeo.rotateX(Math.PI / 2);
         const tireMat = new THREE.MeshLambertMaterial({ color: COLORS.TIRE });
         
@@ -740,7 +759,7 @@ class Piyo {
         flashScreen();
         soundManager.playTone('damage');
         
-        particleSystem.emit(this.mesh.position, 0x00FFFF, 10); 
+        particleSystem.emit(this.mesh.position, 'impact'); 
 
         if (gameState.tireTimer > 0) {
             this.setInvincible(40);
@@ -1063,14 +1082,16 @@ class ObjectManager {
         } else if (type === 'chili') {
             mesh = this.createBoardMesh('chili', 0.8);
         } else if (type === 'tire') {
-            const g = new THREE.CylinderGeometry(0.5, 0.5, 0.3, 6); 
+            // タイヤを八角柱に変更 (segments: 6 -> 8)
+            const g = new THREE.CylinderGeometry(0.5, 0.5, 0.3, 8); 
             g.rotateX(Math.PI/2);
             mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color:0x333333}));
-            const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,0.31,6), new THREE.MeshLambertMaterial({color:0xcccccc}));
+            const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,0.31,8), new THREE.MeshLambertMaterial({color:0xcccccc}));
             wheel.rotateX(Math.PI/2);
             mesh.add(wheel);
         } else if (type === 'moving_block') {
-            const geometry = new THREE.BoxGeometry(1.8, 1.8, 1.2);
+            // 横（Z軸方向）に2倍 (1.2 -> 2.4)
+            const geometry = new THREE.BoxGeometry(1.8, 1.8, 2.4);
             const matBase = new THREE.MeshLambertMaterial({ color: COLORS.BLOCK });
             const matDark = new THREE.MeshLambertMaterial({ color: 0x483D8B });
             mesh = new THREE.Mesh(geometry, [matBase, matBase, matDark, matDark, matBase, matBase]);
@@ -1177,7 +1198,8 @@ class ObjectManager {
             objData.startX = x; 
             objData.phase = Math.random() * Math.PI * 2;
         } else if (type === 'ghost_sign') {
-            objData.mesh.position.y = -5;
+            // 初期状態は完全に隠しておく (チラつき防止)
+            objData.mesh.position.y = -12;
         }
     }
 
@@ -1192,7 +1214,8 @@ class ObjectManager {
                  obj.mesh.position.y = 1.0 + Math.sin(gameState.frameCount * 0.1 + obj.mesh.id) * 0.1;
             } 
             else if (obj.type === 'moving_block') {
-                const zOffset = Math.sin(gameState.frameCount * 0.02 + obj.phase) * 6;
+                // 動きをゆっくりに (係数 0.02 -> 0.01)
+                const zOffset = Math.sin(gameState.frameCount * 0.01 + obj.phase) * 6;
                 obj.mesh.position.z = zOffset;
             }
             else if (obj.type === 'fire') {
@@ -1200,8 +1223,11 @@ class ObjectManager {
             }
             else if (obj.type === 'ghost_sign') {
                 const t = gameState.frameCount * 0.03 + obj.mesh.id;
-                const yOffset = (Math.sin(t) + 1) / 2 * 5; // 0 to 5
-                obj.mesh.position.y = -5 + yOffset;
+                // オバケの上下動範囲をさらに拡大 (-10 〜 0)
+                // -10のとき看板(Y=9)は Y=-1 で地面下に潜る
+                // 0のとき看板(Y=9)は Y=9 で高い
+                const yOffset = (Math.sin(t) + 1) / 2 * 10; 
+                obj.mesh.position.y = -10 + yOffset;
             }
 
             if (obj.mesh.position.x < -20) this.deactivate(obj, i);
@@ -1230,7 +1256,7 @@ class ObjectManager {
 
             const dz = Math.abs(pPos.z - oPos.z);
             let hitZ = 1.2;
-            if (obj.type === 'moving_block') hitZ = 1.8;
+            if (obj.type === 'moving_block') hitZ = 1.8; // Z幅を広げたので当たり判定も拡大
             if (obj.type === 'ghost_sign') hitZ = 0.8; 
 
             if (dz > hitZ) continue; 
@@ -1261,7 +1287,7 @@ class ObjectManager {
         const type = obj.type;
 
         if (['cake', 'onigiri', 'tire'].includes(type)) {
-            particleSystem.emit(obj.mesh.position, 0xFFFF00, 5);
+            particleSystem.emit(obj.mesh.position, 'sparkle');
         }
 
         if (type === 'cake') {
@@ -1280,12 +1306,13 @@ class ObjectManager {
             soundManager.playTone('slow');
             gameState.slowTimer = GAME_CONFIG.SLOW_TIME; 
             updateOverlayEffect('red');
-            particleSystem.emit(obj.mesh.position, 0xFF0000, 5);
+            particleSystem.emit(obj.mesh.position, 'impact');
             this.deactivate(obj, index);
         } 
         else if (type === 'fire' || type === 'moving_block' || type === 'ghost_sign') {
             if (player.invincibleTimer > 0) return;
             
+            particleSystem.emit(obj.mesh.position, 'impact');
             if(type === 'moving_block') player.damage(35);
             else player.damage(25);
         }
@@ -1477,7 +1504,8 @@ function animate() {
         checkTileGimmick();
         objectManager.checkCollision(piyo);
         
-        gameState.score += currentSpeed;
+        // 走行距離によるスコア加算を廃止
+        // gameState.score += currentSpeed;
         if (gameState.frameCount % 10 === 0) updateUI();
     }
 
