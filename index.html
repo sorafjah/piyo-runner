@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ぴよランナー</title>
+    <title>ぴよランナー（軽量版）</title>
     <style>
         body {
             margin: 0;
@@ -68,7 +68,8 @@
 
         #lives {
             font-size: 24px;
-            filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.5));
+            /* 軽量化: ドロップシャドウ削除 */
+            /* filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.5)); */
             letter-spacing: 5px;
         }
 
@@ -97,7 +98,8 @@
             font-size: 32px;
             font-weight: bold;
             color: #fff;
-            text-shadow: 2px 2px 0px rgba(0,0,0,0.2);
+            /* 軽量化: テキストシャドウ簡素化 */
+            text-shadow: 1px 1px 0px rgba(0,0,0,0.5);
         }
 
         /* 中央メッセージ */
@@ -120,7 +122,7 @@
         h1 {
             font-size: 48px;
             color: #FFD700;
-            text-shadow: 4px 4px 0px #ff6b6b;
+            text-shadow: 2px 2px 0px #ff6b6b;
             margin: 0 0 10px 0;
         }
 
@@ -130,11 +132,11 @@
             text-align: center;
             line-height: 1.5;
             margin-bottom: 20px;
-            background: rgba(255, 255, 255, 0.1);
+            /* 軽量化: backdrop-filter削除 */
+            background: rgba(0, 0, 0, 0.5); 
             padding: 15px;
             border-radius: 10px;
             max-width: 90%;
-            backdrop-filter: blur(5px);
         }
 
         .item-list {
@@ -160,19 +162,21 @@
             border: none;
             border-radius: 50px;
             cursor: pointer;
-            box-shadow: 0 4px 0 #2E7D32;
+            /* 軽量化: box-shadow削除 */
+            border-bottom: 4px solid #2E7D32; 
             transition: transform 0.1s;
             pointer-events: auto;
         }
 
         button:active {
             transform: translateY(4px);
-            box-shadow: none;
+            border-bottom: none;
+            margin-top: 4px;
         }
 
         button.sound-off {
             background-color: #757575;
-            box-shadow: 0 4px 0 #424242;
+            border-bottom: 4px solid #424242;
         }
 
         .hidden {
@@ -205,6 +209,8 @@
             opacity: 0;
             transition: opacity 0.3s;
             background: transparent;
+            /* GPU合成レイヤーを分離して高速化 */
+            will-change: opacity, background-color; 
         }
     </style>
     <!-- Three.js CDN -->
@@ -403,6 +409,7 @@ function init() {
         textureMap[key] = createEmojiTexture(emoji, 64);
     }
 
+    // マテリアルの共有化 (MeshLambertMaterialはBasicより重いが、影なしだと見た目がのっぺりするためLambert維持)
     matGroundA = new THREE.MeshLambertMaterial({ color: COLORS.GROUND_A });
     matGroundB = new THREE.MeshLambertMaterial({ color: COLORS.GROUND_B });
     
@@ -412,32 +419,29 @@ function init() {
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(COLORS.SKY);
-    scene.fog = new THREE.Fog(COLORS.SKY, 20, 50);
+    // フォグを少し手前にして描画範囲をごまかす
+    scene.fog = new THREE.Fog(COLORS.SKY, 15, 40);
 
-    camera = new THREE.PerspectiveCamera(50, getAspect(), 0.1, 100);
+    camera = new THREE.PerspectiveCamera(50, getAspect(), 0.1, 80); // Farを少し短く
     camera.position.set(2, 8, 14); 
     camera.lookAt(2, 3, 0);
 
     const container = document.getElementById('game-container');
-    renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false }); 
+    renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" }); 
     
-    // 影を軽量設定に
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.BasicShadowMap; 
+    // 【軽量化1】影の計算を完全に無効化
+    renderer.shadowMap.enabled = false;
     
     container.appendChild(renderer.domElement);
     resizeRenderer();
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    // 【軽量化2】ライトをシンプルに
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
     dirLight.position.set(5, 15, 10);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 256; 
-    dirLight.shadow.mapSize.height = 256;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 40;
+    // 影生成を削除
     scene.add(dirLight);
 
     world = new World();
@@ -484,7 +488,12 @@ function resizeRenderer() {
     }
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    
     renderer.setSize(w, h);
+    
+    // 【軽量化3】ピクセル比率を最大1.5に制限
+    // 最近のスマホは3.0など高すぎるため、計算負荷を抑える
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 }
 
 function createEmojiTexture(emoji, size) {
@@ -497,7 +506,10 @@ function createEmojiTexture(emoji, size) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(emoji, size / 2, size / 2 + size * 0.1);
-    return new THREE.CanvasTexture(canvas);
+    const tex = new THREE.CanvasTexture(canvas);
+    // テクスチャ設定の最適化
+    tex.minFilter = THREE.LinearFilter; 
+    return tex;
 }
 
 // --- 4. Particle System ---
@@ -508,20 +520,26 @@ class ParticleSystem {
         this.meshGroup = new THREE.Group();
         scene.add(this.meshGroup);
 
-        this.boxGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+        // BoxGeometry -> PlaneGeometry (厚みなし) に変更して軽量化＆紙吹雪感
+        this.particleGeo = new THREE.PlaneGeometry(0.3, 0.3);
         this.matCache = {}; 
     }
 
     getMaterial(color) {
         if (!this.matCache[color]) {
-            this.matCache[color] = new THREE.MeshBasicMaterial({ color: color, transparent: true });
+            // 裏面も描画するように DoubleSide
+            this.matCache[color] = new THREE.MeshBasicMaterial({ 
+                color: color, 
+                transparent: true, 
+                side: THREE.DoubleSide 
+            });
         }
         return this.matCache[color];
     }
 
     emit(position, color, count = 5) {
         const mat = this.getMaterial(color);
-        const geo = this.boxGeo;
+        const geo = this.particleGeo;
 
         for(let i=0; i<count; i++) {
             let p = this.pool.pop();
@@ -538,7 +556,7 @@ class ParticleSystem {
             p.mesh.position.z += (Math.random() - 0.5) * 1.0;
             p.mesh.visible = true;
             p.mesh.scale.setScalar(1);
-            p.mesh.rotation.set(0,0,0);
+            p.mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
 
             p.vel.set(
                 (Math.random() - 0.5) * 0.3,
@@ -556,9 +574,10 @@ class ParticleSystem {
             const p = this.particles[i];
             if (!p.active) continue;
 
-            p.life -= 0.05; 
+            p.life -= 0.08; 
             p.mesh.position.add(p.vel);
             p.mesh.rotation.x += 0.2;
+            p.mesh.rotation.y += 0.2; // 回転を追加してひらひらさせる
             p.mesh.scale.setScalar(p.life);
             
             if (p.life <= 0) {
@@ -586,28 +605,29 @@ class Piyo {
     constructor() {
         this.mesh = new THREE.Group();
         
-        // ポリゴン数削減
-        const bodyGeo = new THREE.SphereGeometry(0.6, 10, 10); 
+        // 【軽量化4】ポリゴン数削減 (10,10 -> 8,6)
+        const bodyGeo = new THREE.SphereGeometry(0.6, 8, 6); 
         const bodyMat = new THREE.MeshLambertMaterial({ color: COLORS.PIYO_BODY });
         this.body = new THREE.Mesh(bodyGeo, bodyMat);
-        this.body.castShadow = true;
+        // castShadow削除
         this.mesh.add(this.body);
 
-        const headGeo = new THREE.SphereGeometry(0.5, 10, 10);
+        const headGeo = new THREE.SphereGeometry(0.5, 8, 6);
         this.head = new THREE.Mesh(headGeo, bodyMat);
         this.head.position.set(0.4, 0.7, 0); 
-        this.head.castShadow = true;
         this.mesh.add(this.head);
 
-        const beakGeo = new THREE.ConeGeometry(0.15, 0.4, 5);
+        // コーンも分割数を減らす
+        const beakGeo = new THREE.ConeGeometry(0.15, 0.4, 4);
         const beakMat = new THREE.MeshLambertMaterial({ color: COLORS.PIYO_BEAK });
         this.beak = new THREE.Mesh(beakGeo, beakMat);
         this.beak.rotation.z = -Math.PI / 2; 
         this.beak.position.set(0.9, 0.7, 0); 
         this.mesh.add(this.beak);
 
-        const eyeGeo = new THREE.SphereGeometry(0.06, 6, 6);
-        const eyeMat = new THREE.MeshLambertMaterial({ color: COLORS.PIYO_EYE });
+        // 目は極小なのでBoxでもバレないが、一応Sphere(4,4)で
+        const eyeGeo = new THREE.SphereGeometry(0.06, 4, 4);
+        const eyeMat = new THREE.MeshBasicMaterial({ color: COLORS.PIYO_EYE }); // Basicに変更
         this.eyeL = new THREE.Mesh(eyeGeo, eyeMat);
         this.eyeL.position.set(0.75, 0.85, 0.25); 
         this.mesh.add(this.eyeL);
@@ -615,7 +635,7 @@ class Piyo {
         this.eyeR.position.set(0.75, 0.85, -0.25); 
         this.mesh.add(this.eyeR);
         
-        const wingGeo = new THREE.SphereGeometry(0.4, 6, 6);
+        const wingGeo = new THREE.SphereGeometry(0.4, 6, 4);
         wingGeo.scale(1, 0.5, 0.2); 
         const wingL = new THREE.Mesh(wingGeo, bodyMat);
         wingL.position.set(0, 0.2, 0.5);
@@ -626,9 +646,24 @@ class Piyo {
         wingR.rotation.y = 0.3;
         this.mesh.add(wingR);
 
+        // 【軽量化5】疑似影（Fake Shadow）を追加
+        // リアルタイムシャドウの代わりに、黒い丸い板を足元に置く
+        const shadowGeo = new THREE.CircleGeometry(0.5, 8);
+        const shadowMat = new THREE.MeshBasicMaterial({ 
+            color: 0x000000, 
+            transparent: true, 
+            opacity: 0.3 
+        });
+        this.fakeShadow = new THREE.Mesh(shadowGeo, shadowMat);
+        this.fakeShadow.rotation.x = -Math.PI / 2;
+        this.fakeShadow.position.y = -0.55; // 体の下
+        this.mesh.add(this.fakeShadow);
+
+
         this.tireGroup = new THREE.Group();
         this.tireGroup.visible = false;
-        const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 8);
+        // タイヤを八角柱に変更 (segments: 6 -> 8)
+        const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 8); 
         tireGeo.rotateX(Math.PI / 2);
         const tireMat = new THREE.MeshLambertMaterial({ color: COLORS.TIRE });
         
@@ -817,6 +852,24 @@ class Piyo {
             this.mesh.position.x = -4;
         }
 
+        // 疑似影の更新 (地面の高さに合わせて追従させる)
+        this.fakeShadow.position.x = 0; 
+        this.fakeShadow.position.z = 0;
+        // ジャンプ中は影を薄く小さく
+        const dist = Math.abs(this.mesh.position.y - 1);
+        const sScale = Math.max(0, 1 - dist * 0.15);
+        this.fakeShadow.scale.setScalar(sScale);
+        this.fakeShadow.material.opacity = Math.max(0, 0.3 - dist * 0.05);
+        // 穴の上なら影消す
+        if (this.onHole && !this.isJumping) {
+            this.fakeShadow.visible = false;
+        } else {
+            this.fakeShadow.visible = true;
+            // 影のY座標を親の逆位置に設定して、常にY=0.01（地面すれすれ）に維持するハック
+            // ただし親(this.mesh)が動くので、親のYを引く
+            this.fakeShadow.position.y = -this.mesh.position.y + 0.05; 
+        }
+
         if (this.isJumping) {
             const timeScale = (gameState.slowTimer > 0) ? 0.6 : 1.0;
             this.mesh.position.y += this.yVelocity * timeScale;
@@ -883,7 +936,7 @@ class World {
     }
 
     setupScenery() {
-        for(let i=0; i<8; i++) {
+        for(let i=0; i<6; i++) { // 雲の数を少し減らす
             const size = 5 + Math.random() * 5;
             const geo = new THREE.PlaneGeometry(size, size);
             const mat = new THREE.MeshBasicMaterial({ 
@@ -907,11 +960,12 @@ class World {
 
     createTile(gridX, laneIndex) {
         const size = GAME_CONFIG.TILE_SIZE;
+        // 地面はBoxGeometryでOK (1,1,1 -> 削減済み)
         const geo = new THREE.BoxGeometry(size, 1, GAME_CONFIG.LANE_WIDTH - 0.1);
         const isEven = (gridX + laneIndex) % 2 === 0;
         const mat = isEven ? matGroundA : matGroundB;
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.receiveShadow = true;
+        // receiveShadow削除
 
         const z = (laneIndex * GAME_CONFIG.LANE_WIDTH) - ((GAME_CONFIG.LANE_COUNT - 1) * GAME_CONFIG.LANE_WIDTH / 2);
         const xStart = -10; 
@@ -968,6 +1022,7 @@ class World {
     }
 
     getTileAt(x, z) {
+        // findは重くなる可能性があるが、配列数が少ない(20*4=80)ので許容範囲
         return this.tiles.find(t => 
             Math.abs(t.mesh.position.x - x) < GAME_CONFIG.TILE_SIZE / 2 &&
             Math.abs(t.mesh.position.z - z) < 0.5
@@ -1015,6 +1070,7 @@ class ObjectManager {
         } else if (type === 'chili') {
             mesh = this.createBoardMesh('chili', 0.8);
         } else if (type === 'tire') {
+            // タイヤを八角柱に変更 (segments: 6 -> 8)
             const g = new THREE.CylinderGeometry(0.5, 0.5, 0.3, 8); 
             g.rotateX(Math.PI/2);
             mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color:0x333333}));
@@ -1029,17 +1085,17 @@ class ObjectManager {
         } else if (type === 'ghost_sign') {
             const group = new THREE.Group();
             // 棒
-            const stickGeo = new THREE.CylinderGeometry(0.1, 0.1, 10, 6);
-            const stickMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); // 茶色に変更
+            const stickGeo = new THREE.CylinderGeometry(0.1, 0.1, 10, 4);
+            const stickMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); 
             const stick = new THREE.Mesh(stickGeo, stickMat);
             stick.position.y = 4; 
-            stick.position.z = -0.1; // おばけの後ろ（奥）に配置
+            stick.position.z = -0.1; 
             group.add(stick);
 
             // おばけ看板
             const board = this.createBoardMesh('ghost', 1.2);
             board.position.y = 9; 
-            board.rotation.y = 0; // カメラ(プレイヤー側)を向くように0に設定
+            board.rotation.y = 0; 
             group.add(board);
 
             mesh = group;
@@ -1052,7 +1108,6 @@ class ObjectManager {
     }
 
     spawnObjectOnTile(tile) {
-        // 同時出現数制限 (10個)
         if (this.objects.filter(o => o.active).length >= 10) return;
 
         const rand = Math.random();
@@ -1080,7 +1135,7 @@ class ObjectManager {
             
             if (subRand < 0.25) type = 'fire';
             else if (subRand < 0.35) type = 'moving_block';
-            else if (subRand < 0.50) type = 'ghost_sign'; // おばけ看板
+            else if (subRand < 0.50) type = 'ghost_sign'; 
             else if (subRand < 0.70) type = 'cake'; 
             else if (subRand < 0.85) type = 'onigiri';
             else if (subRand < 0.92) type = 'chili';
@@ -1089,7 +1144,7 @@ class ObjectManager {
             if (type === 'onigiri' && gameState.hp >= 95) type = 'cake';
 
             if (type === 'fire' && Math.random() < 0.3 && tile.lane < GAME_CONFIG.LANE_COUNT - 1) {
-                if (this.objects.filter(o => o.active).length >= 9) { // fire2個用制限
+                if (this.objects.filter(o => o.active).length >= 9) { 
                     this.spawnSingle(type, tile.mesh.position.x, tile.mesh.position.z);
                     return;
                 }
@@ -1130,7 +1185,6 @@ class ObjectManager {
             objData.startX = x; 
             objData.phase = Math.random() * Math.PI * 2;
         } else if (type === 'ghost_sign') {
-            // 初期位置は地面の下めにして、アニメーションで上下させる
             objData.mesh.position.y = -5;
         }
     }
@@ -1153,11 +1207,6 @@ class ObjectManager {
                 obj.mesh.lookAt(camera.position);
             }
             else if (obj.type === 'ghost_sign') {
-                // 地面から伸び縮み
-                // 通常ジャンプ高さ(約Y=4) 〜 ジャンプ台高さ(約Y=9)
-                // 看板自体のローカルYは9
-                // グループYを調整して、看板のワールドYを4~9にする
-                // グループY: -5 〜 0
                 const t = gameState.frameCount * 0.03 + obj.mesh.id;
                 const yOffset = (Math.sin(t) + 1) / 2 * 5; // 0 to 5
                 obj.mesh.position.y = -5 + yOffset;
@@ -1436,7 +1485,8 @@ function animate() {
         checkTileGimmick();
         objectManager.checkCollision(piyo);
         
-        gameState.score += currentSpeed;
+        // 走行距離によるスコア加算を廃止
+        // gameState.score += currentSpeed;
         if (gameState.frameCount % 10 === 0) updateUI();
     }
 
