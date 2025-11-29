@@ -256,11 +256,13 @@
         <div id="overlay">
             <h1 id="title-text">ぴよランナー</h1>
             <div class="instructions" id="instructions">
-                👆 タップ：ジャンプ (タイヤ時は不可)<br>
+                🏎️ タイヤを取るとスピードアップ＆しばらく無敵！<br>
+                👉 その間はタップでジャンプができなくなるので注意！<br><br>
+                👆 タップ：ジャンプ（タイヤ中は不可）<br>
                 ↕️ 上下スワイプ：レーン移動<br>
                 <div class="item-list">
                     <span>🍰/🍙</span><span>スコア&回復</span>
-                    <span>🏎️</span><span>タイヤ：爆走＆無敵(ジャンプ不可)</span>
+                    <span>🏎️</span><span>タイヤ：爆走＆無敵（ジャンプ不可）</span>
                     <span>🌶</span><span>唐辛子：5秒間ダウン...</span>
                     <span>🔥/👻</span><span>敵：ぶつかるとダメージ</span>
                 </div>
@@ -370,9 +372,9 @@ const soundManager = new SoundManager();
 
 const COLORS = {
     SKY: 0x87CEEB,
-    // チェッカーを見やすくするためにコントラスト強めのペアに変更
-    GROUND_A: 0x7CFC00, // 明るい黄緑
-    GROUND_B: 0x228B22, // 濃い緑
+    // チェッカー：少しマイルドな緑ペア
+    GROUND_A: 0xA8E6A1, // 明るめの柔らかい緑
+    GROUND_B: 0x66C97F, // 少し濃い黄緑
     HOLE: 0x222222,
     SPRING_FLOOR: 0xFFA500, 
     SPRING_SIDE: 0xCD8500,  
@@ -503,14 +505,10 @@ function getAspect() {
 
 function resizeRenderer() {
     const wrapper = document.getElementById('game-wrapper');
-    let w, h;
-    if (window.innerHeight > window.innerWidth) {
-        w = window.innerHeight;
-        h = window.innerWidth;
-    } else {
-        w = window.innerWidth;
-        h = window.innerHeight;
-    }
+    const rect = wrapper.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
+
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     
@@ -522,7 +520,7 @@ function resizeRenderer() {
         renderer.setPixelRatio(Math.min(dpr, 1.5));
     }
 
-    // そのあとで内部バッファサイズを指定
+    // wrapper の実サイズに合わせて内部バッファも揃える（ホーム追加時の伸び対策）
     renderer.setSize(w, h, false);
 }
 
@@ -1108,8 +1106,8 @@ class ObjectManager {
     }
 
     spawnObjectOnTile(tile) {
-        // オブジェクト上限を 7 個に制限
-        if (this.objects.filter(o => o.active).length >= 7) return;
+        // オブジェクト上限を 8 個に制限
+        if (this.objects.filter(o => o.active).length >= 8) return;
 
         const rand = Math.random();
 
@@ -1145,8 +1143,8 @@ class ObjectManager {
             if (type === 'onigiri' && gameState.hp >= 95) type = 'cake';
 
             if (type === 'fire' && Math.random() < 0.3 && tile.lane < GAME_CONFIG.LANE_COUNT - 1) {
-                // 2個生成のときも上限 7 を超えないように調整
-                if (this.objects.filter(o => o.active).length >= 6) { 
+                // 2個生成のときも上限 8 を超えないように調整
+                if (this.objects.filter(o => o.active).length >= 7) { 
                     this.spawnSingle(type, tile.mesh.position.x, tile.mesh.position.z);
                     return;
                 }
@@ -1183,9 +1181,13 @@ class ObjectManager {
         } else if (type === 'fire') {
             objData.mesh.position.y = 0.8; 
         } else if (type === 'moving_block') {
-            objData.mesh.position.y = 1.2;
-            objData.startX = x; 
-            objData.phase = Math.random() * Math.PI * 2;
+            // 直方体ブロック：その場に固定 & 高さランダム（1段目/2段目/3段目）
+            const tiers = [1.2, 3.0, 5.0];
+            const y = tiers[Math.floor(Math.random() * tiers.length)];
+            objData.mesh.position.y = y;
+            // 左右位置も少しランダム（レーン中心からずらす）
+            const laneOffset = (Math.random() - 0.5) * (GAME_CONFIG.LANE_WIDTH * 0.8);
+            objData.mesh.position.z += laneOffset;
         } else if (type === 'ghost_sign') {
             objData.mesh.position.y = -12;
         }
@@ -1201,10 +1203,7 @@ class ObjectManager {
             if (['cake', 'onigiri', 'chili', 'tire'].includes(obj.type)) {
                  obj.mesh.position.y = 1.0 + Math.sin(gameState.frameCount * 0.1 + obj.mesh.id) * 0.1;
             } 
-            else if (obj.type === 'moving_block') {
-                const zOffset = Math.sin(gameState.frameCount * 0.01 + obj.phase) * 6;
-                obj.mesh.position.z = zOffset;
-            }
+            // moving_block はその場に固定（x方向に流れるだけ）
             else if (obj.type === 'fire') {
                 obj.mesh.lookAt(camera.position);
             }
