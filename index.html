@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ぴよランナー改 (軽量化Ver)</title>
+    <title>ぴよランナー（軽量版）</title>
     <style>
         body {
             margin: 0;
@@ -68,7 +68,8 @@
 
         #lives {
             font-size: 24px;
-            filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.5));
+            /* 軽量化: ドロップシャドウ削除 */
+            /* filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.5)); */
             letter-spacing: 5px;
         }
 
@@ -97,10 +98,11 @@
             font-size: 32px;
             font-weight: bold;
             color: #fff;
-            text-shadow: 2px 2px 0px rgba(0,0,0,0.2);
+            /* 軽量化: テキストシャドウ簡素化 */
+            text-shadow: 1px 1px 0px rgba(0,0,0,0.5);
         }
 
-        /* 中央メッセージ（タイトル・ゲームオーバー） */
+        /* 中央メッセージ */
         #overlay {
             position: absolute;
             top: 0;
@@ -120,7 +122,7 @@
         h1 {
             font-size: 48px;
             color: #FFD700;
-            text-shadow: 4px 4px 0px #ff6b6b;
+            text-shadow: 2px 2px 0px #ff6b6b;
             margin: 0 0 10px 0;
         }
 
@@ -130,11 +132,11 @@
             text-align: center;
             line-height: 1.5;
             margin-bottom: 20px;
-            background: rgba(255, 255, 255, 0.1);
+            /* 軽量化: backdrop-filter削除 */
+            background: rgba(0, 0, 0, 0.5); 
             padding: 15px;
             border-radius: 10px;
             max-width: 90%;
-            backdrop-filter: blur(5px);
         }
 
         .item-list {
@@ -160,19 +162,21 @@
             border: none;
             border-radius: 50px;
             cursor: pointer;
-            box-shadow: 0 4px 0 #2E7D32;
+            /* 軽量化: box-shadow削除 */
+            border-bottom: 4px solid #2E7D32; 
             transition: transform 0.1s;
             pointer-events: auto;
         }
 
         button:active {
             transform: translateY(4px);
-            box-shadow: none;
+            border-bottom: none;
+            margin-top: 4px;
         }
 
         button.sound-off {
             background-color: #757575;
-            box-shadow: 0 4px 0 #424242;
+            border-bottom: 4px solid #424242;
         }
 
         .hidden {
@@ -193,7 +197,7 @@
             transition: opacity 0.1s;
         }
         
-        /* エフェクトオーバーレイ（唐辛子・タイヤ） */
+        /* エフェクトオーバーレイ */
         #effect-overlay {
             position: absolute;
             top: 0;
@@ -205,6 +209,8 @@
             opacity: 0;
             transition: opacity 0.3s;
             background: transparent;
+            /* GPU合成レイヤーを分離して高速化 */
+            will-change: opacity, background-color; 
         }
     </style>
     <!-- Three.js CDN -->
@@ -228,16 +234,15 @@
         </div>
 
         <div id="overlay">
-            <h1 id="title-text">ぴよランナー改</h1>
+            <h1 id="title-text">ぴよランナー</h1>
             <div class="instructions" id="instructions">
                 👆 タップ：ジャンプ (タイヤ時は不可)<br>
                 ↕️ 上下スワイプ：レーン移動<br>
-                ⚠ 走ると体力が減るよ！
                 <div class="item-list">
                     <span>🍰/🍙</span><span>スコア&回復</span>
-                    <span>🏎️</span><span>タイヤ：爆走モード(ジャンプ不可)</span>
+                    <span>🏎️</span><span>タイヤ：爆走＆無敵(ジャンプ不可)</span>
                     <span>🌶</span><span>唐辛子：5秒間ダウン...</span>
-                    <span>🔥/👻</span><span>敵：ぶつかるとダメージ！</span>
+                    <span>🔥/👻</span><span>敵：ぶつかるとダメージ</span>
                 </div>
             </div>
             <div class="instructions hidden" id="result-area">
@@ -256,7 +261,7 @@ window.onerror = function(message, source, lineno, colno, error) {
     console.error(message, error);
 };
 
-// --- 1. Sound Manager (Web Audio API) ---
+// --- 1. Sound Manager ---
 class SoundManager {
     constructor() {
         this.ctx = null;
@@ -271,7 +276,7 @@ class SoundManager {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.ctx = new AudioContext();
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.3; // 全体の音量
+        this.masterGain.gain.value = 0.3; 
         this.masterGain.connect(this.ctx.destination);
     }
 
@@ -296,8 +301,7 @@ class SoundManager {
                 osc.start(now);
                 osc.stop(now + 0.1);
                 break;
-            
-            case 'coin': // Cake/Onigiri
+            case 'coin': 
                 osc.type = 'triangle';
                 osc.frequency.setValueAtTime(1200, now);
                 osc.frequency.setValueAtTime(1800, now + 0.05);
@@ -306,27 +310,15 @@ class SoundManager {
                 osc.start(now);
                 osc.stop(now + 0.1);
                 break;
-
-            case 'powerup': // Tire
+            case 'powerup': 
                 osc.type = 'square';
                 osc.frequency.setValueAtTime(200, now);
                 osc.frequency.linearRampToValueAtTime(600, now + 0.3);
                 gain.gain.setValueAtTime(0.5, now);
                 gain.gain.linearRampToValueAtTime(0.01, now + 0.4);
-                // トレモロ
-                const lfo = this.ctx.createOscillator();
-                lfo.frequency.value = 20;
-                const lfoGain = this.ctx.createGain();
-                lfoGain.gain.value = 500;
-                lfo.connect(lfoGain);
-                lfoGain.connect(osc.frequency);
-                lfo.start(now);
-                lfo.stop(now + 0.4);
-
                 osc.start(now);
                 osc.stop(now + 0.4);
                 break;
-
             case 'damage':
                 osc.type = 'sawtooth';
                 osc.frequency.setValueAtTime(150, now);
@@ -336,8 +328,7 @@ class SoundManager {
                 osc.start(now);
                 osc.stop(now + 0.3);
                 break;
-
-            case 'slow': // Chili
+            case 'slow':
                 osc.type = 'triangle';
                 osc.frequency.setValueAtTime(300, now);
                 osc.frequency.linearRampToValueAtTime(100, now + 0.5);
@@ -349,7 +340,6 @@ class SoundManager {
         }
     }
 }
-
 const soundManager = new SoundManager();
 
 
@@ -382,8 +372,7 @@ const GAME_CONFIG = {
     JUMP_FORCE: 0.45,
     LONG_JUMP_FORCE: 0.35, 
     TIRE_TIME: 300,
-    SLOW_TIME: 300,
-    HP_DECAY: 0.04
+    SLOW_TIME: 300
 };
 
 let gameState = {
@@ -407,19 +396,20 @@ let matGroundA, matGroundB, matSpring;
 // --- 3. Setup ---
 
 function init() {
+    // 絵文字テクスチャ生成
     const emojis = {
         'cloud': "☁️",
         'cake': "🍰",
         'onigiri': "🍙",
         'chili': "🌶️",
-        'ghost': "👻",
-        'fire': "🔥"
+        'fire': "🔥",
+        'ghost': "👻" 
     };
-    
     for (const [key, emoji] of Object.entries(emojis)) {
-        textureMap[key] = createEmojiTexture(emoji, 128);
+        textureMap[key] = createEmojiTexture(emoji, 64);
     }
 
+    // マテリアルの共有化 (MeshLambertMaterialはBasicより重いが、影なしだと見た目がのっぺりするためLambert維持)
     matGroundA = new THREE.MeshLambertMaterial({ color: COLORS.GROUND_A });
     matGroundB = new THREE.MeshLambertMaterial({ color: COLORS.GROUND_B });
     
@@ -429,32 +419,29 @@ function init() {
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(COLORS.SKY);
-    scene.fog = new THREE.Fog(COLORS.SKY, 20, 50);
+    // フォグを少し手前にして描画範囲をごまかす
+    scene.fog = new THREE.Fog(COLORS.SKY, 15, 40);
 
-    camera = new THREE.PerspectiveCamera(50, getAspect(), 0.1, 100);
+    camera = new THREE.PerspectiveCamera(50, getAspect(), 0.1, 80); // Farを少し短く
     camera.position.set(2, 8, 14); 
     camera.lookAt(2, 3, 0);
 
     const container = document.getElementById('game-container');
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" }); 
     
-    // 【軽量化修正】ShadowMapをBasicに変更して負荷軽減
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.BasicShadowMap; 
+    // 【軽量化1】影の計算を完全に無効化
+    renderer.shadowMap.enabled = false;
     
     container.appendChild(renderer.domElement);
     resizeRenderer();
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    // 【軽量化2】ライトをシンプルに
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
     dirLight.position.set(5, 15, 10);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 512;
-    dirLight.shadow.mapSize.height = 512;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 50;
+    // 影生成を削除
     scene.add(dirLight);
 
     world = new World();
@@ -471,7 +458,7 @@ function init() {
         document.getElementById('start-buttons').classList.remove('hidden');
         document.getElementById('retry-btn').classList.add('hidden');
         document.getElementById('result-area').classList.add('hidden');
-        document.getElementById('title-text').innerText = "ぴよランナー改";
+        document.getElementById('title-text').innerText = "ぴよランナー";
         document.getElementById('instructions').classList.remove('hidden');
     });
 
@@ -501,7 +488,12 @@ function resizeRenderer() {
     }
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    
     renderer.setSize(w, h);
+    
+    // 【軽量化3】ピクセル比率を最大1.5に制限
+    // 最近のスマホは3.0など高すぎるため、計算負荷を抑える
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 }
 
 function createEmojiTexture(emoji, size) {
@@ -514,19 +506,22 @@ function createEmojiTexture(emoji, size) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(emoji, size / 2, size / 2 + size * 0.1);
-    return new THREE.CanvasTexture(canvas);
+    const tex = new THREE.CanvasTexture(canvas);
+    // テクスチャ設定の最適化
+    tex.minFilter = THREE.LinearFilter; 
+    return tex;
 }
 
-// --- 4. Particle System (Optimized with Pooling) ---
+// --- 4. Particle System ---
 class ParticleSystem {
     constructor() {
         this.particles = [];
-        this.pool = []; // オブジェクトプール
+        this.pool = []; 
         this.meshGroup = new THREE.Group();
         scene.add(this.meshGroup);
 
+        // BoxGeometryは軽いが、更に軽くするためにPlaneでも良いが、Boxのままで数を抑える
         this.boxGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-        this.starGeo = new THREE.PlaneGeometry(0.5, 0.5);
         this.matCache = {}; 
     }
 
@@ -537,21 +532,18 @@ class ParticleSystem {
         return this.matCache[color];
     }
 
-    emit(position, color, count = 5, type = 'box') {
+    emit(position, color, count = 5) {
         const mat = this.getMaterial(color);
-        const geo = (type === 'star') ? this.starGeo : this.boxGeo;
+        const geo = this.boxGeo;
 
         for(let i=0; i<count; i++) {
             let p = this.pool.pop();
-            // プールになければ新規作成
             if (!p) {
                 const mesh = new THREE.Mesh(geo, mat);
                 this.meshGroup.add(mesh);
                 p = { mesh: mesh, vel: new THREE.Vector3(), life: 0, active: false };
             }
 
-            // 初期化（使い回し）
-            p.mesh.geometry = geo;
             p.mesh.material = mat;
             p.mesh.position.copy(position);
             p.mesh.position.x += (Math.random() - 0.5) * 1.0;
@@ -568,7 +560,6 @@ class ParticleSystem {
             );
             p.life = 1.0;
             p.active = true;
-
             this.particles.push(p);
         }
     }
@@ -578,17 +569,16 @@ class ParticleSystem {
             const p = this.particles[i];
             if (!p.active) continue;
 
-            p.life -= 0.05; // 寿命を少し短くして回転率を上げる
+            p.life -= 0.08; // 寿命を少し早くして回転率を上げる
             p.mesh.position.add(p.vel);
             p.mesh.rotation.x += 0.2;
-            p.mesh.rotation.y += 0.2;
             p.mesh.scale.setScalar(p.life);
             
             if (p.life <= 0) {
                 p.active = false;
                 p.mesh.visible = false;
-                this.pool.push(p); // プールに戻す
-                this.particles.splice(i, 1); // アクティブリストから外す
+                this.pool.push(p);
+                this.particles.splice(i, 1);
             }
         }
     }
@@ -609,27 +599,29 @@ class Piyo {
     constructor() {
         this.mesh = new THREE.Group();
         
-        const bodyGeo = new THREE.SphereGeometry(0.6, 16, 16); 
+        // 【軽量化4】ポリゴン数削減 (10,10 -> 8,6)
+        const bodyGeo = new THREE.SphereGeometry(0.6, 8, 6); 
         const bodyMat = new THREE.MeshLambertMaterial({ color: COLORS.PIYO_BODY });
         this.body = new THREE.Mesh(bodyGeo, bodyMat);
-        this.body.castShadow = true;
+        // castShadow削除
         this.mesh.add(this.body);
 
-        const headGeo = new THREE.SphereGeometry(0.5, 16, 16);
+        const headGeo = new THREE.SphereGeometry(0.5, 8, 6);
         this.head = new THREE.Mesh(headGeo, bodyMat);
         this.head.position.set(0.4, 0.7, 0); 
-        this.head.castShadow = true;
         this.mesh.add(this.head);
 
-        const beakGeo = new THREE.ConeGeometry(0.15, 0.4, 8);
+        // コーンも分割数を減らす
+        const beakGeo = new THREE.ConeGeometry(0.15, 0.4, 4);
         const beakMat = new THREE.MeshLambertMaterial({ color: COLORS.PIYO_BEAK });
         this.beak = new THREE.Mesh(beakGeo, beakMat);
         this.beak.rotation.z = -Math.PI / 2; 
         this.beak.position.set(0.9, 0.7, 0); 
         this.mesh.add(this.beak);
 
-        const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
-        const eyeMat = new THREE.MeshLambertMaterial({ color: COLORS.PIYO_EYE });
+        // 目は極小なのでBoxでもバレないが、一応Sphere(4,4)で
+        const eyeGeo = new THREE.SphereGeometry(0.06, 4, 4);
+        const eyeMat = new THREE.MeshBasicMaterial({ color: COLORS.PIYO_EYE }); // Basicに変更
         this.eyeL = new THREE.Mesh(eyeGeo, eyeMat);
         this.eyeL.position.set(0.75, 0.85, 0.25); 
         this.mesh.add(this.eyeL);
@@ -637,7 +629,7 @@ class Piyo {
         this.eyeR.position.set(0.75, 0.85, -0.25); 
         this.mesh.add(this.eyeR);
         
-        const wingGeo = new THREE.SphereGeometry(0.4, 8, 8);
+        const wingGeo = new THREE.SphereGeometry(0.4, 6, 4);
         wingGeo.scale(1, 0.5, 0.2); 
         const wingL = new THREE.Mesh(wingGeo, bodyMat);
         wingL.position.set(0, 0.2, 0.5);
@@ -648,9 +640,23 @@ class Piyo {
         wingR.rotation.y = 0.3;
         this.mesh.add(wingR);
 
+        // 【軽量化5】疑似影（Fake Shadow）を追加
+        // リアルタイムシャドウの代わりに、黒い丸い板を足元に置く
+        const shadowGeo = new THREE.CircleGeometry(0.5, 8);
+        const shadowMat = new THREE.MeshBasicMaterial({ 
+            color: 0x000000, 
+            transparent: true, 
+            opacity: 0.3 
+        });
+        this.fakeShadow = new THREE.Mesh(shadowGeo, shadowMat);
+        this.fakeShadow.rotation.x = -Math.PI / 2;
+        this.fakeShadow.position.y = -0.55; // 体の下
+        this.mesh.add(this.fakeShadow);
+
+
         this.tireGroup = new THREE.Group();
         this.tireGroup.visible = false;
-        const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 12);
+        const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 6); // 分割数減
         tireGeo.rotateX(Math.PI / 2);
         const tireMat = new THREE.MeshLambertMaterial({ color: COLORS.TIRE });
         
@@ -729,38 +735,38 @@ class Piyo {
     damage(amount) {
         if (this.invincibleTimer > 0 || this.falling || this.respawning) return; 
         
-        if (gameState.tireTimer > 0) {
-            gameState.tireTimer = 0;
-            this.tireGroup.visible = false;
-            updateOverlayEffect(null);
-        }
-
         gameState.hp -= amount;
         updateUI();
         flashScreen();
         soundManager.playTone('damage');
         
-        // 【修正】パーティクルの色を赤(0xff0000)から水色(0x00FFFF)に変更
         particleSystem.emit(this.mesh.position, 0x00FFFF, 10); 
 
-        this.setInvincible(60); 
+        if (gameState.tireTimer > 0) {
+            this.setInvincible(40);
+        } else {
+            this.setInvincible(60); 
+        }
 
         if (gameState.hp <= 0) {
             gameState.lives--;
             gameState.hp = 100;
+            if (gameState.tireTimer > 0) {
+                 gameState.tireTimer = 0;
+                 this.tireGroup.visible = false;
+                 updateOverlayEffect(null);
+            }
             updateUI();
 
             if (gameState.lives <= 0) {
                 this.die();
             } else {
-                // 【修正】即復活せず、2秒間待ってから降りてくる処理へ
                 this.respawning = true;
-                this.mesh.visible = false; // 一旦消える
-                
+                this.mesh.visible = false; 
                 setTimeout(() => {
                     if(!gameState.isPlaying) return;
                     this.respawn();
-                }, 2000); // 2秒待機
+                }, 2000); 
             }
         }
     }
@@ -800,10 +806,10 @@ class Piyo {
 
     respawn() {
         this.falling = false; 
-        this.mesh.position.y = 12; // 上空から
+        this.mesh.position.y = 12; 
         this.mesh.position.z = this.getZFromLane(this.lane); 
         this.mesh.rotation.set(0,0,0); 
-        this.mesh.visible = true; // 表示
+        this.mesh.visible = true; 
         this.yVelocity = 0; 
         this.isJumping = true; 
         this.onHole = false;    
@@ -837,6 +843,24 @@ class Piyo {
             this.mesh.position.x = -4 + (Math.random()-0.5)*0.1;
         } else {
             this.mesh.position.x = -4;
+        }
+
+        // 疑似影の更新 (地面の高さに合わせて追従させる)
+        this.fakeShadow.position.x = 0; 
+        this.fakeShadow.position.z = 0;
+        // ジャンプ中は影を薄く小さく
+        const dist = Math.abs(this.mesh.position.y - 1);
+        const sScale = Math.max(0, 1 - dist * 0.15);
+        this.fakeShadow.scale.setScalar(sScale);
+        this.fakeShadow.material.opacity = Math.max(0, 0.3 - dist * 0.05);
+        // 穴の上なら影消す
+        if (this.onHole && !this.isJumping) {
+            this.fakeShadow.visible = false;
+        } else {
+            this.fakeShadow.visible = true;
+            // 影のY座標を親の逆位置に設定して、常にY=0.01（地面すれすれ）に維持するハック
+            // ただし親(this.mesh)が動くので、親のYを引く
+            this.fakeShadow.position.y = -this.mesh.position.y + 0.05; 
         }
 
         if (this.isJumping) {
@@ -878,7 +902,6 @@ class Piyo {
 
         if (this.invincibleTimer > 0) {
             this.invincibleTimer--;
-            // respawning中は点滅処理させない（非表示のままにするため）
             if (!this.respawning) {
                 this.mesh.visible = Math.floor(this.invincibleTimer / 5) % 2 === 0;
                 if (this.invincibleTimer === 0) {
@@ -897,7 +920,7 @@ class World {
         this.sceneryGroup = new THREE.Group();
         scene.add(this.sceneryGroup);
         this.setupScenery();
-        this.cols = 24; 
+        this.cols = 20; 
         for (let x = 0; x < this.cols; x++) {
             for (let z = 0; z < GAME_CONFIG.LANE_COUNT; z++) {
                 this.createTile(x, z);
@@ -906,7 +929,7 @@ class World {
     }
 
     setupScenery() {
-        for(let i=0; i<10; i++) {
+        for(let i=0; i<6; i++) { // 雲の数を少し減らす
             const size = 5 + Math.random() * 5;
             const geo = new THREE.PlaneGeometry(size, size);
             const mat = new THREE.MeshBasicMaterial({ 
@@ -919,7 +942,7 @@ class World {
             const mesh = new THREE.Mesh(geo, mat);
             
             mesh.position.set(
-                Math.random() * 100 - 20, 
+                Math.random() * 80 - 20, 
                 5 + Math.random() * 10,   
                 -10 - Math.random() * 10  
             );
@@ -930,11 +953,12 @@ class World {
 
     createTile(gridX, laneIndex) {
         const size = GAME_CONFIG.TILE_SIZE;
+        // 地面はBoxGeometryでOK (1,1,1 -> 削減済み)
         const geo = new THREE.BoxGeometry(size, 1, GAME_CONFIG.LANE_WIDTH - 0.1);
         const isEven = (gridX + laneIndex) % 2 === 0;
         const mat = isEven ? matGroundA : matGroundB;
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.receiveShadow = true;
+        // receiveShadow削除
 
         const z = (laneIndex * GAME_CONFIG.LANE_WIDTH) - ((GAME_CONFIG.LANE_COUNT - 1) * GAME_CONFIG.LANE_WIDTH / 2);
         const xStart = -10; 
@@ -977,7 +1001,7 @@ class World {
         
         this.sceneryGroup.children.forEach(cloud => {
             cloud.position.x -= speed * cloud.userData.speedRate;
-            if (cloud.position.x < -30) cloud.position.x = 80; 
+            if (cloud.position.x < -30) cloud.position.x = 60; 
         });
 
         this.tiles.forEach(tile => {
@@ -991,6 +1015,7 @@ class World {
     }
 
     getTileAt(x, z) {
+        // findは重くなる可能性があるが、配列数が少ない(20*4=80)ので許容範囲
         return this.tiles.find(t => 
             Math.abs(t.mesh.position.x - x) < GAME_CONFIG.TILE_SIZE / 2 &&
             Math.abs(t.mesh.position.z - z) < 0.5
@@ -1037,13 +1062,11 @@ class ObjectManager {
             mesh = this.createBoardMesh('onigiri', 0.8);
         } else if (type === 'chili') {
             mesh = this.createBoardMesh('chili', 0.8);
-        } else if (type === 'ghost') {
-            mesh = this.createBoardMesh('ghost', 1.0);
         } else if (type === 'tire') {
-            const g = new THREE.CylinderGeometry(0.5, 0.5, 0.3, 12);
+            const g = new THREE.CylinderGeometry(0.5, 0.5, 0.3, 6); 
             g.rotateX(Math.PI/2);
             mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color:0x333333}));
-            const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,0.31,8), new THREE.MeshLambertMaterial({color:0xcccccc}));
+            const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,0.31,6), new THREE.MeshLambertMaterial({color:0xcccccc}));
             wheel.rotateX(Math.PI/2);
             mesh.add(wheel);
         } else if (type === 'moving_block') {
@@ -1051,6 +1074,23 @@ class ObjectManager {
             const matBase = new THREE.MeshLambertMaterial({ color: COLORS.BLOCK });
             const matDark = new THREE.MeshLambertMaterial({ color: 0x483D8B });
             mesh = new THREE.Mesh(geometry, [matBase, matBase, matDark, matDark, matBase, matBase]);
+        } else if (type === 'ghost_sign') {
+            const group = new THREE.Group();
+            // 棒
+            const stickGeo = new THREE.CylinderGeometry(0.1, 0.1, 10, 4);
+            const stickMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); 
+            const stick = new THREE.Mesh(stickGeo, stickMat);
+            stick.position.y = 4; 
+            stick.position.z = -0.1; 
+            group.add(stick);
+
+            // おばけ看板
+            const board = this.createBoardMesh('ghost', 1.2);
+            board.position.y = 9; 
+            board.rotation.y = 0; 
+            group.add(board);
+
+            mesh = group;
         }
         
         if(mesh) {
@@ -1060,14 +1100,18 @@ class ObjectManager {
     }
 
     spawnObjectOnTile(tile) {
+        if (this.objects.filter(o => o.active).length >= 10) return;
+
         const rand = Math.random();
 
+        // 1. 穴
         if (rand < 0.02) {
             tile.type = 'hole';
             tile.mesh.visible = false; 
             return; 
         }
         
+        // 2. ジャンプ台
         if (rand < 0.05) {
             tile.type = 'spring';
             tile.mesh.material = matSpring;
@@ -1076,21 +1120,26 @@ class ObjectManager {
             return;
         }
 
+        // 3. オブジェクト生成
         if (rand < 0.20) { 
             let type = null;
             const subRand = Math.random();
             
             if (subRand < 0.25) type = 'fire';
             else if (subRand < 0.35) type = 'moving_block';
-            else if (subRand < 0.45) type = 'ghost';
+            else if (subRand < 0.50) type = 'ghost_sign'; 
             else if (subRand < 0.70) type = 'cake'; 
             else if (subRand < 0.85) type = 'onigiri';
             else if (subRand < 0.92) type = 'chili';
             else type = 'tire'; 
 
-            if (type === 'onigiri' && gameState.hp >= 90) type = 'cake';
+            if (type === 'onigiri' && gameState.hp >= 95) type = 'cake';
 
             if (type === 'fire' && Math.random() < 0.3 && tile.lane < GAME_CONFIG.LANE_COUNT - 1) {
+                if (this.objects.filter(o => o.active).length >= 9) { 
+                    this.spawnSingle(type, tile.mesh.position.x, tile.mesh.position.z);
+                    return;
+                }
                 this.spawnSingle(type, tile.mesh.position.x, tile.mesh.position.z);
                 const z2 = tile.mesh.position.z + GAME_CONFIG.LANE_WIDTH;
                 this.spawnSingle(type, tile.mesh.position.x, z2);
@@ -1123,13 +1172,12 @@ class ObjectManager {
             objData.mesh.rotation.x = Math.PI/2;
         } else if (type === 'fire') {
             objData.mesh.position.y = 0.8; 
-        } else if (type === 'ghost') {
-            objData.mesh.position.y = 1.5 + Math.random();
-            objData.phase = Math.random() * Math.PI * 2;
         } else if (type === 'moving_block') {
             objData.mesh.position.y = 1.2;
             objData.startX = x; 
             objData.phase = Math.random() * Math.PI * 2;
+        } else if (type === 'ghost_sign') {
+            objData.mesh.position.y = -5;
         }
     }
 
@@ -1147,14 +1195,13 @@ class ObjectManager {
                 const zOffset = Math.sin(gameState.frameCount * 0.02 + obj.phase) * 6;
                 obj.mesh.position.z = zOffset;
             }
-            else if (obj.type === 'ghost') {
-                const t = gameState.frameCount * 0.03 + obj.phase;
-                obj.mesh.position.y = 2.0 + Math.sin(t) * 0.8; 
-                obj.mesh.position.z += Math.cos(t * 1.5) * 0.05;
-                obj.mesh.lookAt(camera.position); 
-            }
             else if (obj.type === 'fire') {
                 obj.mesh.lookAt(camera.position);
+            }
+            else if (obj.type === 'ghost_sign') {
+                const t = gameState.frameCount * 0.03 + obj.mesh.id;
+                const yOffset = (Math.sin(t) + 1) / 2 * 5; // 0 to 5
+                obj.mesh.position.y = -5 + yOffset;
             }
 
             if (obj.mesh.position.x < -20) this.deactivate(obj, i);
@@ -1184,16 +1231,25 @@ class ObjectManager {
             const dz = Math.abs(pPos.z - oPos.z);
             let hitZ = 1.2;
             if (obj.type === 'moving_block') hitZ = 1.8;
-            if (obj.type === 'ghost') hitZ = 1.0;
+            if (obj.type === 'ghost_sign') hitZ = 0.8; 
 
             if (dz > hitZ) continue; 
 
+            // 高さ判定
             const dy = Math.abs(pPos.y - oPos.y);
             let hitY = 1.2; 
             if (obj.type === 'fire') hitY = 1.0; 
             if (['cake', 'onigiri', 'chili', 'tire'].includes(obj.type)) hitY = 1.5;
             if (obj.type === 'moving_block') hitY = 1.8;
-            if (obj.type === 'ghost') hitY = 1.0;
+            
+            if (obj.type === 'ghost_sign') {
+                const topY = oPos.y + 10; 
+                const bottomY = oPos.y - 1; 
+                if (pPos.y < topY && pPos.y > bottomY) {
+                    this.resolveCollision(player, obj, i);
+                }
+                continue;
+            }
 
             if (dy > hitY) continue; 
 
@@ -1205,7 +1261,7 @@ class ObjectManager {
         const type = obj.type;
 
         if (['cake', 'onigiri', 'tire'].includes(type)) {
-            particleSystem.emit(obj.mesh.position, 0xFFFF00, 5, 'star');
+            particleSystem.emit(obj.mesh.position, 0xFFFF00, 5);
         }
 
         if (type === 'cake') {
@@ -1224,10 +1280,10 @@ class ObjectManager {
             soundManager.playTone('slow');
             gameState.slowTimer = GAME_CONFIG.SLOW_TIME; 
             updateOverlayEffect('red');
-            particleSystem.emit(obj.mesh.position, 0xFF0000, 5, 'box');
+            particleSystem.emit(obj.mesh.position, 0xFF0000, 5);
             this.deactivate(obj, index);
         } 
-        else if (type === 'fire' || type === 'moving_block' || type === 'ghost') {
+        else if (type === 'fire' || type === 'moving_block' || type === 'ghost_sign') {
             if (player.invincibleTimer > 0) return;
             
             if(type === 'moving_block') player.damage(35);
@@ -1307,7 +1363,7 @@ class InputManager {
     }
 }
 
-// --- 6. Game Loop & Logic ---
+// --- 6. Game Loop ---
 
 function startGame(soundEnabled) {
     soundManager.init(soundEnabled);
@@ -1397,14 +1453,6 @@ function animate() {
     if (gameState.isPlaying) {
         gameState.frameCount++;
         
-        if (gameState.frameCount % 5 === 0) {
-            gameState.hp -= GAME_CONFIG.HP_DECAY * 5;
-            if (gameState.hp <= 0 && gameState.lives > 0) {
-                piyo.damage(0); 
-            }
-            updateUI();
-        }
-
         let targetSpeed = GAME_CONFIG.BASE_SPEED;
 
         if (gameState.slowTimer > 0) {
@@ -1418,9 +1466,7 @@ function animate() {
                 piyo.tireGroup.visible = false;
                 updateOverlayEffect(null);
             }
-        } else {
-             targetSpeed += Math.min(0.2, gameState.frameCount * 0.00005);
-        }
+        } 
 
         currentSpeed += (targetSpeed - currentSpeed) * 0.05;
 
