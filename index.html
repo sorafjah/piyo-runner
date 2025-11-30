@@ -36,8 +36,8 @@
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
+            width: 100vw;
+            height: 100vh;
             overflow: hidden;
             background-color: #87CEEB;
         }
@@ -65,7 +65,6 @@
         #game-container canvas {
             width: 100% !important;
             height: 100% !important;
-            display: block;
         }
 
         /* UIレイヤー */
@@ -114,18 +113,32 @@
             transition: width 0.1s linear;
         }
 
-        /* 右上スコア */
-        #score-board {
+        /* 右上スコアエリア */
+        #score-container {
             position: absolute;
             top: 20px;
             right: 20px;
+            text-align: right;
+            /* セーフエリア対応 */
+            padding-top: env(safe-area-inset-top);
+            padding-right: env(safe-area-inset-right);
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        #score-board {
             font-size: 32px;
             font-weight: bold;
             color: #fff;
             text-shadow: 1px 1px 0px rgba(0,0,0,0.5);
-            /* セーフエリア対応 */
-            padding-top: env(safe-area-inset-top);
-            padding-right: env(safe-area-inset-right);
+        }
+
+        #highscore-board {
+            font-size: 16px;
+            font-weight: bold;
+            color: #FFD700; /* 金色 */
+            text-shadow: 1px 1px 0px rgba(0,0,0,0.8);
         }
 
         /* ぶっぶーメッセージ */
@@ -267,8 +280,10 @@
                     <div id="hp-bar"></div>
                 </div>
             </div>
-            <div id="score-board">0</div>
-            <!-- 絵文字削除 -->
+            <div id="score-container">
+                <div id="score-board">0</div>
+                <div id="highscore-board">HI: 0</div>
+            </div>
             <div id="bubbu-msg">ぶっぶー</div>
         </div>
 
@@ -276,8 +291,7 @@
             <h1 id="title-text">ぴよランナー</h1>
             <div class="instructions" id="instructions">
                 👆 タップ：ジャンプ<br>
-                ↔️ 左右スワイプ：レーン移動<br>
-                （縦持ち時は左右にスワイプ）<br>
+                ↕️ 上下スワイプ：レーン移動<br>
                 🍙 おにぎり：体力回復
             </div>
             <div class="instructions hidden" id="result-area">
@@ -417,7 +431,7 @@ const GAME_CONFIG = {
     BASE_SPEED: baseSpeedVal,
     TIRE_SPEED_RATIO: 1.3, // 130% (速度計算で使用)
     SLOW_SPEED_RATIO: 0.8, // 80% (速度計算で使用)
-    GRAVITY: 0.025,         
+    GRAVITY: 0.025,        
     FLOAT_GRAVITY: 0.008, 
     JUMP_FORCE: 0.45,
     LONG_JUMP_FORCE: 0.35, 
@@ -428,6 +442,7 @@ const GAME_CONFIG = {
 let gameState = {
     isPlaying: false,
     score: 0,
+    highScore: 0, // ハイスコア
     lives: 3,
     hp: 100,
     frameCount: 0,
@@ -447,6 +462,13 @@ let matGroundA, matGroundB, matSpring;
 // --- 3. Setup ---
 
 function init() {
+    // ハイスコア読み込み
+    const savedScore = localStorage.getItem('piyorunner_highscore');
+    if (savedScore) {
+        gameState.highScore = parseInt(savedScore, 10);
+    }
+    updateUI();
+
     // 絵文字テクスチャ生成
     const emojis = {
         'cloud': "☁️",
@@ -473,8 +495,7 @@ function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(COLORS.SKY);
 
-    // カメラの初期設定（アスペクト比はresizeRendererで正しく上書きされる）
-    camera = new THREE.PerspectiveCamera(50, 1.0, 0.1, 80);
+    camera = new THREE.PerspectiveCamera(50, getAspect(), 0.1, 80);
     camera.position.set(2, 8, 14); 
     camera.lookAt(2, 3, 0);
 
@@ -485,7 +506,7 @@ function init() {
     renderer.shadowMap.enabled = false;
     
     container.appendChild(renderer.domElement);
-    resizeRenderer(); // ここで正しいサイズとアスペクト比を設定
+    resizeRenderer();
 
     // ライトをシンプルに
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
@@ -521,29 +542,19 @@ function init() {
     animate();
 }
 
-/**
- * 修正されたリサイズ関数
- * 縦画面（ポートレート）の場合、強制的に幅と高さを入れ替えて
- * Three.js内部では「横長」として認識させる
- */
+function getAspect() {
+    const wrapper = document.getElementById('game-wrapper');
+    const rect = wrapper.getBoundingClientRect();
+    return rect.width / rect.height;
+}
+
 function resizeRenderer() {
-    // ウィンドウ全体のサイズを取得
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const wrapper = document.getElementById('game-wrapper');
+    const rect = wrapper.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
 
-    let gameW, gameH;
-
-    // 縦長画面なら、内部解像度を入れ替える
-    if (h > w) {
-        gameW = h;
-        gameH = w;
-    } else {
-        gameW = w;
-        gameH = h;
-    }
-
-    // カメラのアスペクト比を更新（常に横長として計算）
-    camera.aspect = gameW / gameH;
+    camera.aspect = w / h;
     camera.updateProjectionMatrix();
     
     const dpr = window.devicePixelRatio || 1;
@@ -553,8 +564,7 @@ function resizeRenderer() {
         renderer.setPixelRatio(Math.min(dpr, 1.5));
     }
 
-    // レンダラーのサイズを設定
-    renderer.setSize(gameW, gameH, false);
+    renderer.setSize(w, h, false);
 }
 
 function createEmojiTexture(emoji, size) {
@@ -799,9 +809,9 @@ class Piyo {
                 this.respawning = true;
                 this.mesh.visible = false; 
                 if (gameState.tireEndTime > 0) {
-                      gameState.tireEndTime = 0;
-                      this.tireGroup.visible = false;
-                      updateOverlayEffect(null);
+                     gameState.tireEndTime = 0;
+                     this.tireGroup.visible = false;
+                     updateOverlayEffect(null);
                 }
                 setTimeout(() => {
                     if(!gameState.isPlaying) return;
@@ -834,9 +844,9 @@ class Piyo {
             if (gameState.lives > 0) {
                 this.respawning = true;
                 if (gameState.tireEndTime > 0) {
-                      gameState.tireEndTime = 0;
-                      this.tireGroup.visible = false;
-                      updateOverlayEffect(null);
+                     gameState.tireEndTime = 0;
+                     this.tireGroup.visible = false;
+                     updateOverlayEffect(null);
                 }
                 setTimeout(() => {
                     if(!gameState.isPlaying) return;
@@ -875,6 +885,11 @@ class Piyo {
     die() {
         gameState.lives = 0;
         gameState.hp = 0;
+        // ハイスコア更新
+        if (gameState.score > gameState.highScore) {
+            gameState.highScore = Math.floor(gameState.score);
+            localStorage.setItem('piyorunner_highscore', gameState.highScore);
+        }
         updateUI();
         gameOver();
     }
@@ -929,12 +944,9 @@ class Piyo {
         } else {
             this.bounceOffset = (this.bounceOffset || 0) + (isSlow ? 0.1 : 0.3);
             
-            // 修正箇所：穴落下判定の強化
-            // 浅い位置(-1.0以上)で穴判定(onHole)が外れた場合は復帰
-            // 深い位置(-1.0未満)まで落ちているなら、たとえタイルが通り過ぎてonHoleがfalseになっても落下を継続させる
             if (!this.onHole && this.mesh.position.y > -1.0) {
                 if (isTire) {
-                      this.mesh.position.y = 1;
+                     this.mesh.position.y = 1;
                 } else {
                     this.mesh.position.y = 1 + Math.abs(Math.sin(this.bounceOffset)) * 0.15;
                     this.mesh.rotation.z = Math.sin(this.bounceOffset) * 0.05; 
@@ -1389,17 +1401,11 @@ class InputManager {
         document.addEventListener('mouseup', this.onMouseUp.bind(this));
     }
 
-    /**
-     * 入力座標の変換処理
-     * ポートレートモード（CSSで回転している状態）では
-     * XとYを入れ替えてゲーム内の座標系に合わせる
-     */
     getTransformedPoint(clientX, clientY) {
         if (window.innerHeight > window.innerWidth) {
-            // 縦持ち時: CSSで90度時計回りに回転している状態
-            // 画面のY座標 -> ゲームのX座標（スワイプ量計算用）
-            // 画面のX座標 -> ゲームのY座標
-            return { x: clientY, y: clientX }; 
+            // 縦画面（強制横向き表示）時の補正
+            // スワイプ方向が逆になるとの報告に基づき、Y成分を反転
+            return { x: clientY, y: -clientX }; 
         } else {
             return { x: clientX, y: clientY };
         }
@@ -1447,8 +1453,6 @@ class InputManager {
         if (dist < 30) {
             piyo.jump('normal');
         } else {
-            // スワイプ判定
-            // 縦持ちの場合、dyは「画面のX軸方向（短辺）」の変化量になる
             if (Math.abs(dy) > Math.abs(dx)) {
                 if (dy < 0) piyo.moveLane(-1); 
                 else piyo.moveLane(1); 
@@ -1507,6 +1511,7 @@ function updateUI() {
     document.getElementById('lives').innerText = heartStr;
     document.getElementById('hp-bar').style.width = Math.max(0, gameState.hp) + "%";
     document.getElementById('score-board').innerText = Math.floor(gameState.score);
+    document.getElementById('highscore-board').innerText = "HI: " + Math.floor(gameState.highScore);
 }
 
 function showBubbu() {
