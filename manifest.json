@@ -1,0 +1,21 @@
+{
+  "name": "ぴよランナー",
+  "short_name": "ぴよランナー",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#87CEEB",
+  "theme_color": "#87CEEB",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "QR_piyorunner.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "QR_piyorunner.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
