@@ -21,13 +21,13 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
-            position: fixed; /* iOSで画面が揺れるのを防ぐ強力な固定 */
+            position: fixed;
             font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
             background-color: #333;
             user-select: none;
             -webkit-user-select: none;
             touch-action: none;
-            overscroll-behavior: none; /* スクロール連鎖の停止 */
+            overscroll-behavior: none;
             -webkit-tap-highlight-color: transparent;
         }
 
@@ -36,8 +36,8 @@
             position: absolute;
             top: 0;
             left: 0;
-            width: 100vw;
-            height: 100vh;
+            width: 100%;
+            height: 100%;
             overflow: hidden;
             background-color: #87CEEB;
         }
@@ -61,10 +61,10 @@
             display: block;
         }
         
-        /* Canvasを強制的に引き伸ばす */
         #game-container canvas {
             width: 100% !important;
             height: 100% !important;
+            display: block;
         }
 
         /* UIレイヤー */
@@ -86,7 +86,6 @@
             display: flex;
             flex-direction: column;
             gap: 5px;
-            /* セーフエリア対応（ノッチ対策） */
             padding-top: env(safe-area-inset-top);
             padding-left: env(safe-area-inset-left);
         }
@@ -122,7 +121,6 @@
             font-weight: bold;
             color: #fff;
             text-shadow: 1px 1px 0px rgba(0,0,0,0.5);
-            /* セーフエリア対応 */
             padding-top: env(safe-area-inset-top);
             padding-right: env(safe-area-inset-right);
         }
@@ -148,14 +146,14 @@
             opacity: 1;
         }
 
-        /* 中央メッセージ */
+        /* 中央メッセージ & ランキング */
         #overlay {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0, 0, 0, 0.6);
+            background-color: rgba(0, 0, 0, 0.7);
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -184,6 +182,57 @@
             min-width: 280px;
         }
 
+        /* ランキングボード */
+        #ranking-board {
+            background: rgba(255, 255, 255, 0.9);
+            width: 80%;
+            max-width: 500px;
+            max-height: 50vh; /* 画面の半分くらいまで */
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            overflow-y: auto; /* スクロール可能に */
+            color: #333;
+            font-size: 14px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            -webkit-overflow-scrolling: touch; /* iOSでのスクロール滑らか化 */
+        }
+
+        #ranking-board h2 {
+            text-align: center;
+            margin: 0 0 10px 0;
+            color: #2E7D32;
+            border-bottom: 2px solid #2E7D32;
+            padding-bottom: 5px;
+        }
+
+        .rank-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .rank-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        .rank-item:last-child {
+            border-bottom: none;
+        }
+        
+        /* 自分の今回のスコアを強調 */
+        .rank-item.current-score {
+            background-color: #FFD700;
+            font-weight: bold;
+            border-radius: 5px;
+        }
+        
+        .rank-rank { width: 50px; font-weight: bold; }
+        .rank-score { flex: 1; text-align: right; font-family: monospace; font-size: 16px; }
+        .rank-date { width: 100px; text-align: right; font-size: 10px; color: #666; margin-left: 10px; line-height: 20px;}
+
         .btn-group {
             display: flex;
             gap: 20px;
@@ -201,7 +250,6 @@
             border-bottom: 4px solid #2E7D32; 
             transition: transform 0.1s;
             pointer-events: auto;
-            /* タップ時のハイライト削除 */
             -webkit-tap-highlight-color: transparent;
         }
 
@@ -267,20 +315,32 @@
                 </div>
             </div>
             <div id="score-board">0</div>
-            <!-- 絵文字削除 -->
             <div id="bubbu-msg">ぶっぶー</div>
         </div>
 
         <div id="overlay">
             <h1 id="title-text">ぴよランナー</h1>
+            
+            <!-- スタート前の説明 -->
             <div class="instructions" id="instructions">
                 👆 タップ：ジャンプ<br>
-                ↕️ 上下スワイプ：レーン移動<br>
+                ↔️ スワイプ：レーン移動<br>
                 🍙 おにぎり：体力回復
             </div>
+
+            <!-- ランキング表示エリア（ゲームオーバー時のみ表示） -->
+            <div id="ranking-board" class="hidden">
+                <h2>RANKING (TOP 100)</h2>
+                <ul id="ranking-list" class="rank-list">
+                    <!-- JSで挿入 -->
+                </ul>
+            </div>
+
+            <!-- 結果スコア（ランキングの上に出る） -->
             <div class="instructions hidden" id="result-area">
                 SCORE: <span id="final-score">0</span>
             </div>
+
             <div class="btn-group" id="start-buttons">
                 <button id="start-sound-on">音ありでSTART</button>
                 <button id="start-sound-off" class="sound-off">音なし</button>
@@ -296,7 +356,6 @@ window.onerror = function(message, source, lineno, colno, error) {
 
 // --- 環境判定 ---
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-// ホーム画面から起動しているか（スタンドアローンモード）の判定
 const IS_STANDALONE = window.navigator.standalone || (window.matchMedia('(display-mode: standalone)').matches);
 
 // --- 1. Sound Manager ---
@@ -380,8 +439,62 @@ class SoundManager {
 }
 const soundManager = new SoundManager();
 
+// --- 2. Ranking Manager ---
+class RankingManager {
+    constructor() {
+        this.storageKey = 'piyo_runner_v1_ranking';
+        this.limit = 100;
+    }
 
-// --- 2. Constants & Globals ---
+    load() {
+        try {
+            const data = localStorage.getItem(this.storageKey);
+            return data ? JSON.parse(data) : [];
+        } catch (e) {
+            console.error("Ranking load error", e);
+            return [];
+        }
+    }
+
+    save(score) {
+        let ranks = this.load();
+        const now = new Date();
+        const dateStr = `${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
+        
+        // 新しいスコアを追加
+        const newEntry = {
+            score: Math.floor(score),
+            date: dateStr,
+            id: Date.now() // ユニークID（今回追加したスコアを特定するため）
+        };
+        ranks.push(newEntry);
+
+        // スコア降順ソート
+        ranks.sort((a, b) => b.score - a.score);
+
+        // 上位100件に絞る
+        if (ranks.length > this.limit) {
+            ranks = ranks.slice(0, this.limit);
+        }
+
+        // 保存
+        localStorage.setItem(this.storageKey, JSON.stringify(ranks));
+
+        // 今回の順位とリストを返す
+        const myRank = ranks.findIndex(r => r.id === newEntry.id) + 1;
+        
+        // 100位圏外ならランク0を返す
+        return {
+            myRank: myRank > 0 ? myRank : -1,
+            list: ranks,
+            currentId: newEntry.id
+        };
+    }
+}
+const rankingManager = new RankingManager();
+
+
+// --- 3. Constants & Globals ---
 
 const COLORS = {
     SKY: 0x87CEEB,
@@ -398,13 +511,11 @@ const COLORS = {
     TIRE_WHEEL: 0xCCCCCC
 };
 
-// 基本速度設定ロジック
-// iPhoneのホーム画面起動時（PWAモード）は少し重くなる傾向があるため、基本速度を上げて補正する
 let baseSpeedVal = 0.25;
 if (IS_IOS) {
     baseSpeedVal = 0.32;
     if (IS_STANDALONE) {
-        baseSpeedVal = 0.45; // ホーム画面起動時はさらに速く
+        baseSpeedVal = 0.45;
     }
 }
 
@@ -413,14 +524,14 @@ const GAME_CONFIG = {
     LANE_WIDTH: 2.5,
     TILE_SIZE: 3,
     BASE_SPEED: baseSpeedVal,
-    TIRE_SPEED_RATIO: 1.3, // 130% (速度計算で使用)
-    SLOW_SPEED_RATIO: 0.8, // 80% (速度計算で使用)
-    GRAVITY: 0.025,        
+    TIRE_SPEED_RATIO: 1.3,
+    SLOW_SPEED_RATIO: 0.8,
+    GRAVITY: 0.025,         
     FLOAT_GRAVITY: 0.008, 
     JUMP_FORCE: 0.45,
     LONG_JUMP_FORCE: 0.35, 
-    TIRE_DURATION_MS: 20000, // 実時間管理で20秒
-    SLOW_DURATION_MS: 5000   // 実時間管理で5秒
+    TIRE_DURATION_MS: 20000,
+    SLOW_DURATION_MS: 5000
 };
 
 let gameState = {
@@ -429,7 +540,6 @@ let gameState = {
     lives: 3,
     hp: 100,
     frameCount: 0,
-    // フレームカウントではなく終了予定時刻で管理する
     slowEndTime: 0,
     tireEndTime: 0
 };
@@ -442,10 +552,9 @@ let textureMap = {};
 
 let matGroundA, matGroundB, matSpring;
 
-// --- 3. Setup ---
+// --- 4. Setup ---
 
 function init() {
-    // 絵文字テクスチャ生成
     const emojis = {
         'cloud': "☁️",
         'cake': "🍰",
@@ -453,14 +562,13 @@ function init() {
         'chili': "🌶️",
         'fire': "🔥",
         'ghost': "👻",
-        'impact': "💥", // 衝突用
-        'sparkle': "✨"  // 取得用
+        'impact': "💥",
+        'sparkle': "✨"
     };
     for (const [key, emoji] of Object.entries(emojis)) {
         textureMap[key] = createEmojiTexture(emoji, 64);
     }
 
-    // マテリアルの共有化
     matGroundA = new THREE.MeshLambertMaterial({ color: COLORS.GROUND_A });
     matGroundB = new THREE.MeshLambertMaterial({ color: COLORS.GROUND_B });
     
@@ -471,20 +579,17 @@ function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(COLORS.SKY);
 
-    camera = new THREE.PerspectiveCamera(50, getAspect(), 0.1, 80);
+    camera = new THREE.PerspectiveCamera(50, 1.0, 0.1, 80);
     camera.position.set(2, 8, 14); 
     camera.lookAt(2, 3, 0);
 
     const container = document.getElementById('game-container');
     renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" }); 
-    
-    // 影の計算を完全に無効化
     renderer.shadowMap.enabled = false;
-    
     container.appendChild(renderer.domElement);
+    
     resizeRenderer();
 
-    // ライトをシンプルに
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
     scene.add(ambientLight);
 
@@ -506,6 +611,7 @@ function init() {
         document.getElementById('start-buttons').classList.remove('hidden');
         document.getElementById('retry-btn').classList.add('hidden');
         document.getElementById('result-area').classList.add('hidden');
+        document.getElementById('ranking-board').classList.add('hidden');
         document.getElementById('title-text').innerText = "ぴよランナー";
         document.getElementById('instructions').classList.remove('hidden');
     });
@@ -518,19 +624,20 @@ function init() {
     animate();
 }
 
-function getAspect() {
-    const wrapper = document.getElementById('game-wrapper');
-    const rect = wrapper.getBoundingClientRect();
-    return rect.width / rect.height;
-}
-
 function resizeRenderer() {
-    const wrapper = document.getElementById('game-wrapper');
-    const rect = wrapper.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    let gameW, gameH;
 
-    camera.aspect = w / h;
+    if (h > w) {
+        gameW = h;
+        gameH = w;
+    } else {
+        gameW = w;
+        gameH = h;
+    }
+
+    camera.aspect = gameW / gameH;
     camera.updateProjectionMatrix();
     
     const dpr = window.devicePixelRatio || 1;
@@ -539,8 +646,7 @@ function resizeRenderer() {
     } else {
         renderer.setPixelRatio(Math.min(dpr, 1.5));
     }
-
-    renderer.setSize(w, h, false);
+    renderer.setSize(gameW, gameH, false);
 }
 
 function createEmojiTexture(emoji, size) {
@@ -558,14 +664,13 @@ function createEmojiTexture(emoji, size) {
     return tex;
 }
 
-// --- 4. Particle System (Single Pop Effect) ---
+// --- 5. Particle System ---
 class ParticleSystem {
     constructor() {
         this.particles = [];
         this.pool = []; 
         this.meshGroup = new THREE.Group();
         scene.add(this.meshGroup);
-
         this.planeGeo = new THREE.PlaneGeometry(2.0, 2.0); 
         this.matCache = {}; 
     }
@@ -633,7 +738,7 @@ class ParticleSystem {
     }
 }
 
-// --- 5. Classes ---
+// --- 6. Classes ---
 
 class Piyo {
     constructor() {
@@ -686,7 +791,6 @@ class Piyo {
         this.fakeShadow.rotation.x = -Math.PI / 2;
         this.fakeShadow.position.y = -0.55; 
         this.mesh.add(this.fakeShadow);
-
 
         this.tireGroup = new THREE.Group();
         this.tireGroup.visible = false;
@@ -754,7 +858,6 @@ class Piyo {
     }
 
     activateTire() {
-        // 実時間（ミリ秒）で管理
         gameState.tireEndTime = Date.now() + GAME_CONFIG.TIRE_DURATION_MS;
         this.tireGroup.visible = true;
         soundManager.playTone('powerup');
@@ -785,9 +888,9 @@ class Piyo {
                 this.respawning = true;
                 this.mesh.visible = false; 
                 if (gameState.tireEndTime > 0) {
-                     gameState.tireEndTime = 0;
-                     this.tireGroup.visible = false;
-                     updateOverlayEffect(null);
+                      gameState.tireEndTime = 0;
+                      this.tireGroup.visible = false;
+                      updateOverlayEffect(null);
                 }
                 setTimeout(() => {
                     if(!gameState.isPlaying) return;
@@ -820,9 +923,9 @@ class Piyo {
             if (gameState.lives > 0) {
                 this.respawning = true;
                 if (gameState.tireEndTime > 0) {
-                     gameState.tireEndTime = 0;
-                     this.tireGroup.visible = false;
-                     updateOverlayEffect(null);
+                      gameState.tireEndTime = 0;
+                      this.tireGroup.visible = false;
+                      updateOverlayEffect(null);
                 }
                 setTimeout(() => {
                     if(!gameState.isPlaying) return;
@@ -879,7 +982,6 @@ class Piyo {
             this.mesh.position.x = -4;
         }
 
-        // 疑似影の更新
         this.fakeShadow.position.x = 0; 
         this.fakeShadow.position.z = 0;
         const dist = Math.abs(this.mesh.position.y - 1);
@@ -915,18 +1017,14 @@ class Piyo {
         } else {
             this.bounceOffset = (this.bounceOffset || 0) + (isSlow ? 0.1 : 0.3);
             
-            // 修正箇所：穴落下判定の強化
-            // 浅い位置(-1.0以上)で穴判定(onHole)が外れた場合は復帰
-            // 深い位置(-1.0未満)まで落ちているなら、たとえタイルが通り過ぎてonHoleがfalseになっても落下を継続させる
             if (!this.onHole && this.mesh.position.y > -1.0) {
                 if (isTire) {
-                     this.mesh.position.y = 1;
+                      this.mesh.position.y = 1;
                 } else {
                     this.mesh.position.y = 1 + Math.abs(Math.sin(this.bounceOffset)) * 0.15;
                     this.mesh.rotation.z = Math.sin(this.bounceOffset) * 0.05; 
                 }
             } else {
-                // 落下処理
                 this.mesh.position.y -= 0.3;
                 this.mesh.rotation.z += 0.2; 
                 if (this.mesh.position.y < -5 && !this.falling) {
@@ -956,8 +1054,6 @@ class World {
         scene.add(this.sceneryGroup);
         this.setupScenery();
         this.cols = 20; 
-        
-        // 穴の連続生成用予約フラグ（レーンごと）
         this.holeReservations = [false, false, false, false]; 
 
         for (let x = 0; x < this.cols; x++) {
@@ -1109,19 +1205,17 @@ class ObjectManager {
         } else if (type === 'moving_block') {
             const group = new THREE.Group();
             
-            // ブロック本体
             const geometry = new THREE.BoxGeometry(1.8, 1.8, 2.4);
             const matBase = new THREE.MeshLambertMaterial({ color: COLORS.BLOCK });
             const matDark = new THREE.MeshLambertMaterial({ color: 0x483D8B });
             const block = new THREE.Mesh(geometry, [matBase, matBase, matDark, matDark, matBase, matBase]);
             group.add(block);
 
-            // 疑似影（地面に落とす）
             const shadowGeo = new THREE.PlaneGeometry(1.8, 2.4);
             const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
             const shadow = new THREE.Mesh(shadowGeo, shadowMat);
             shadow.rotation.x = -Math.PI / 2;
-            shadow.name = "blockShadow"; // 識別用
+            shadow.name = "blockShadow";
             group.add(shadow);
 
             mesh = group;
@@ -1151,28 +1245,24 @@ class ObjectManager {
     spawnObjectOnTile(tile) {
         if (this.objects.filter(o => o.active).length >= 8) return;
 
-        // 穴の予約チェック（2連続用）
         if (world.holeReservations[tile.lane]) {
             tile.type = 'hole';
             tile.mesh.visible = false;
-            world.holeReservations[tile.lane] = false; // 予約消化
+            world.holeReservations[tile.lane] = false; 
             return;
         }
 
         const rand = Math.random();
 
-        // 1. 穴 (確率0.02)
         if (rand < 0.02) {
             tile.type = 'hole';
             tile.mesh.visible = false;
-            // 50%で次も穴にする予約
             if (Math.random() < 0.5) {
                 world.holeReservations[tile.lane] = true;
             }
             return; 
         }
         
-        // 2. ジャンプ台
         if (rand < 0.05) {
             tile.type = 'spring';
             tile.mesh.material = matSpring;
@@ -1181,7 +1271,6 @@ class ObjectManager {
             return;
         }
 
-        // 3. オブジェクト生成
         if (rand < 0.20) { 
             let type = null;
             const subRand = Math.random();
@@ -1234,17 +1323,14 @@ class ObjectManager {
         } else if (type === 'fire') {
             objData.mesh.position.y = 0.8; 
         } else if (type === 'moving_block') {
-            // 直方体ブロック：その場に固定 & 高さランダム
             const tiers = [1.2, 3.0, 5.0];
             const y = tiers[Math.floor(Math.random() * tiers.length)];
             objData.mesh.position.y = y;
             const laneOffset = (Math.random() - 0.5) * (GAME_CONFIG.LANE_WIDTH * 0.8);
             objData.mesh.position.z += laneOffset;
 
-            // 影の位置調整（ローカル座標でYを逆算して地面に置く）
             const shadow = objData.mesh.children.find(c => c.name === "blockShadow");
             if (shadow) {
-                // 地面(y=0)付近に来るように、親のy座標分引く
                 shadow.position.y = -y + 0.05; 
             }
 
@@ -1333,20 +1419,18 @@ class ObjectManager {
 
         if (type === 'cake') {
             soundManager.playTone('coin');
-            gameState.score += 300; // ケーキはスコア高め
-            // 修正：ケーキは回復しない
+            gameState.score += 300; 
             updateUI();
             this.deactivate(obj, index);
         } else if (type === 'onigiri') {
             soundManager.playTone('coin');
-            player.heal(30); // おにぎりは回復
+            player.heal(30); 
             this.deactivate(obj, index);
         } else if (type === 'tire') {
             player.activateTire();
             this.deactivate(obj, index);
         } else if (type === 'chili') {
             soundManager.playTone('slow');
-            // 実時間管理で5秒
             gameState.slowEndTime = Date.now() + GAME_CONFIG.SLOW_DURATION_MS;
             updateOverlayEffect('red');
             particleSystem.emit(obj.mesh.position, 'impact');
@@ -1367,6 +1451,9 @@ class InputManager {
         this.startX = 0;
         this.startY = 0;
         this.isTouching = false;
+        
+        // 縦持ち判定フラグ
+        this.isPortrait = false;
 
         document.addEventListener('touchstart', this.onTouchStart.bind(this), {passive: false});
         document.addEventListener('touchmove', this.onTouchMove.bind(this), {passive: false});
@@ -1377,8 +1464,10 @@ class InputManager {
 
     getTransformedPoint(clientX, clientY) {
         if (window.innerHeight > window.innerWidth) {
+            this.isPortrait = true;
             return { x: clientY, y: clientX }; 
         } else {
+            this.isPortrait = false;
             return { x: clientX, y: clientY };
         }
     }
@@ -1425,15 +1514,26 @@ class InputManager {
         if (dist < 30) {
             piyo.jump('normal');
         } else {
+            // スワイプ判定
+            // dyは、縦持ち変換後、画面の「短辺（本来の横）」方向の動き
             if (Math.abs(dy) > Math.abs(dx)) {
-                if (dy < 0) piyo.moveLane(-1); 
-                else piyo.moveLane(1); 
+                if (this.isPortrait) {
+                    // 修正：縦持ち時は判定を逆転させる
+                    // 画面の右方向へスワイプ（dy > 0）→ 左レーンへ
+                    // 画面の左方向へスワイプ（dy < 0）→ 右レーンへ
+                    if (dy < 0) piyo.moveLane(1); 
+                    else piyo.moveLane(-1); 
+                } else {
+                    // 横持ち時は通常の判定
+                    if (dy < 0) piyo.moveLane(-1); 
+                    else piyo.moveLane(1); 
+                }
             }
         }
     }
 }
 
-// --- 6. Game Loop ---
+// --- 7. Game Loop ---
 
 function startGame(soundEnabled) {
     soundManager.init(soundEnabled);
@@ -1441,6 +1541,7 @@ function startGame(soundEnabled) {
     document.getElementById('start-buttons').classList.add('hidden');
     document.getElementById('overlay').classList.add('hidden');
     document.getElementById('result-area').classList.add('hidden');
+    document.getElementById('ranking-board').classList.add('hidden');
     document.getElementById('instructions').classList.add('hidden');
     document.getElementById('title-text').classList.add('hidden');
 
@@ -1471,10 +1572,57 @@ function gameOver() {
     resultArea.classList.remove('hidden');
     document.getElementById('final-score').innerText = Math.floor(gameState.score);
     
+    // ランキング処理
+    const rankData = rankingManager.save(gameState.score);
+    renderRanking(rankData);
+
+    document.getElementById('ranking-board').classList.remove('hidden');
+    
     document.getElementById('retry-btn').classList.remove('hidden');
     document.getElementById('retry-btn').innerText = "もう一度";
     
     updateOverlayEffect(null);
+}
+
+function renderRanking(rankData) {
+    const listEl = document.getElementById('ranking-list');
+    listEl.innerHTML = '';
+
+    rankData.list.forEach((item, index) => {
+        const li = document.createElement('li');
+        li.className = 'rank-item';
+        
+        // 今回の自分のスコアをハイライト
+        if (item.id === rankData.currentId) {
+            li.classList.add('current-score');
+        }
+
+        const rankSpan = document.createElement('span');
+        rankSpan.className = 'rank-rank';
+        rankSpan.textContent = (index + 1) + '位';
+
+        const scoreSpan = document.createElement('span');
+        scoreSpan.className = 'rank-score';
+        scoreSpan.textContent = item.score.toLocaleString();
+
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'rank-date';
+        dateSpan.textContent = item.date;
+
+        li.appendChild(rankSpan);
+        li.appendChild(scoreSpan);
+        li.appendChild(dateSpan);
+        listEl.appendChild(li);
+    });
+
+    // リストのトップへスクロール（自分がトップでない場合、自分の位置までスクロールする処理を入れてもいいが、とりあえずトップへ）
+    // もし自分の順位を表示したいなら、要素取得してscrollIntoViewを使う
+    setTimeout(() => {
+        const myItem = listEl.querySelector('.current-score');
+        if (myItem) {
+            myItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, 100);
 }
 
 function updateUI() {
@@ -1533,18 +1681,16 @@ function animate() {
         
         let targetSpeed = GAME_CONFIG.BASE_SPEED;
 
-        // 実時間判定による状態管理
         const now = Date.now();
         const isSlow = (gameState.slowEndTime > now);
         const isTire = (gameState.tireEndTime > now);
 
-        // エフェクト終了検知（描画反映のため）
         if (gameState.slowEndTime > 0 && !isSlow) {
-            gameState.slowEndTime = 0; // 完了
+            gameState.slowEndTime = 0; 
             if (!isTire) updateOverlayEffect(null);
         }
         if (gameState.tireEndTime > 0 && !isTire) {
-            gameState.tireEndTime = 0; // 完了
+            gameState.tireEndTime = 0; 
             piyo.tireGroup.visible = false;
             if (!isSlow) updateOverlayEffect(null);
         }
