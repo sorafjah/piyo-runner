@@ -412,7 +412,6 @@ window.onerror = function(message, source, lineno, colno, error) {
 
 // --- 環境判定 ---
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-const IS_STANDALONE = window.navigator.standalone || (window.matchMedia('(display-mode: standalone)').matches);
 
 // --- 1. Sound Manager ---
 class SoundManager {
@@ -567,13 +566,8 @@ const COLORS = {
     TIRE_WHEEL: 0xCCCCCC
 };
 
-let baseSpeedVal = 0.25;
-if (IS_IOS) {
-    baseSpeedVal = 0.32;
-    if (IS_STANDALONE) {
-        baseSpeedVal = 0.45;
-    }
-}
+// ★変更点：デバイスによる速度変更ロジックを削除し、一律 0.25 に設定
+const baseSpeedVal = 0.25;
 
 const GAME_CONFIG = {
     LANE_COUNT: 4,
@@ -1606,7 +1600,7 @@ function startGame(soundEnabled) {
     const speedMode = speedRadio ? speedRadio.value : 'low';
     
     // スピードの設定
-    // baseSpeedValは環境判定（iOS等）による基準値（High相当）
+    // baseSpeedValは環境判定によらず固定値0.25
     // Lowの場合は0.8倍（唐辛子と同じ倍率）にする
     if (speedMode === 'low') {
         GAME_CONFIG.BASE_SPEED = baseSpeedVal * 0.8;
