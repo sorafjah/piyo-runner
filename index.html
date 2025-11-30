@@ -8,6 +8,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="format-detection" content="telephone=no">
     
+    <!-- ホーム画面アイコン設定 -->
+    <link rel="apple-touch-icon" href="QR_piyorunner.png">
+    <link rel="icon" href="QR_piyorunner.png">
+    
     <title>ぴよランナー</title>
     <style>
         /* iOS特有のバウンド（ラバーバンド）を完全に防ぐ設定 */
@@ -291,6 +295,8 @@ window.onerror = function(message, source, lineno, colno, error) {
 
 // --- 環境判定 ---
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+// ホーム画面から起動しているか（スタンドアローンモード）の判定
+const IS_STANDALONE = window.navigator.standalone || (window.matchMedia('(display-mode: standalone)').matches);
 
 // --- 1. Sound Manager ---
 class SoundManager {
@@ -391,22 +397,29 @@ const COLORS = {
     TIRE_WHEEL: 0xCCCCCC
 };
 
-// 基本速度
-const BASE_SPEED = IS_IOS ? 0.32 : 0.25;
+// 基本速度設定ロジック
+// iPhoneのホーム画面起動時（PWAモード）は少し重くなる傾向があるため、基本速度を上げて補正する
+let baseSpeedVal = 0.25;
+if (IS_IOS) {
+    baseSpeedVal = 0.32;
+    if (IS_STANDALONE) {
+        baseSpeedVal = 0.45; // ホーム画面起動時はさらに速く
+    }
+}
 
 const GAME_CONFIG = {
     LANE_COUNT: 4,
     LANE_WIDTH: 2.5,
     TILE_SIZE: 3,
-    BASE_SPEED: BASE_SPEED,
-    TIRE_SPEED: BASE_SPEED * 1.3, // 130%
-    SLOW_SPEED: BASE_SPEED * 0.8, // 80%
+    BASE_SPEED: baseSpeedVal,
+    TIRE_SPEED_RATIO: 1.3, // 130% (速度計算で使用)
+    SLOW_SPEED_RATIO: 0.8, // 80% (速度計算で使用)
     GRAVITY: 0.025,        
     FLOAT_GRAVITY: 0.008, 
     JUMP_FORCE: 0.45,
     LONG_JUMP_FORCE: 0.35, 
-    TIRE_TIME: 1200, // 20秒 (60fps * 20)
-    SLOW_TIME: 300
+    TIRE_DURATION_MS: 20000, // 実時間管理で20秒
+    SLOW_DURATION_MS: 5000   // 実時間管理で5秒
 };
 
 let gameState = {
@@ -415,8 +428,9 @@ let gameState = {
     lives: 3,
     hp: 100,
     frameCount: 0,
-    slowTimer: 0,
-    tireTimer: 0
+    // フレームカウントではなく終了予定時刻で管理する
+    slowEndTime: 0,
+    tireEndTime: 0
 };
 
 let currentSpeed = GAME_CONFIG.BASE_SPEED;
@@ -725,7 +739,6 @@ class Piyo {
     jump(forceType = 'normal') {
         if (!gameState.isPlaying || this.falling || this.respawning) return;
         
-        // 修正: タイヤ中でもジャンプ可能にするためガードを削除
         if (!this.isJumping || forceType === 'long') {
             soundManager.playTone('jump');
             this.isJumping = true;
@@ -740,9 +753,9 @@ class Piyo {
     }
 
     activateTire() {
-        gameState.tireTimer = GAME_CONFIG.TIRE_TIME;
+        // 実時間（ミリ秒）で管理
+        gameState.tireEndTime = Date.now() + GAME_CONFIG.TIRE_DURATION_MS;
         this.tireGroup.visible = true;
-        // 修正: ジャンプをキャンセルしない
         soundManager.playTone('powerup');
         updateOverlayEffect('blue');
     }
@@ -753,7 +766,6 @@ class Piyo {
         gameState.hp -= amount;
         updateUI();
         flashScreen();
-        // showBubbu(); // 削除: ダメージのみでは表示しない
         soundManager.playTone('damage');
         
         particleSystem.emit(this.mesh.position, 'impact'); 
@@ -764,15 +776,15 @@ class Piyo {
             gameState.lives--;
             gameState.hp = 100;
             updateUI();
-            showBubbu(); // 追加: ライフが減った時のみ表示
+            showBubbu(); 
 
             if (gameState.lives <= 0) {
                 this.die();
             } else {
                 this.respawning = true;
                 this.mesh.visible = false; 
-                if (gameState.tireTimer > 0) {
-                     gameState.tireTimer = 0;
+                if (gameState.tireEndTime > 0) {
+                     gameState.tireEndTime = 0;
                      this.tireGroup.visible = false;
                      updateOverlayEffect(null);
                 }
@@ -801,13 +813,13 @@ class Piyo {
             gameState.lives--;
             updateUI();
             flashScreen(); 
-            showBubbu(); // 落下時はライフが減るので表示する
+            showBubbu(); 
             soundManager.playTone('damage');
 
             if (gameState.lives > 0) {
                 this.respawning = true;
-                if (gameState.tireTimer > 0) {
-                     gameState.tireTimer = 0;
+                if (gameState.tireEndTime > 0) {
+                     gameState.tireEndTime = 0;
                      this.tireGroup.visible = false;
                      updateOverlayEffect(null);
                 }
@@ -834,8 +846,8 @@ class Piyo {
         this.onHole = false;    
         this.isFloating = false;
         gameState.hp = 100;
-        gameState.slowTimer = 0;
-        gameState.tireTimer = 0;
+        gameState.slowEndTime = 0;
+        gameState.tireEndTime = 0;
         this.tireGroup.visible = false;
         updateOverlayEffect(null);
 
@@ -854,10 +866,12 @@ class Piyo {
 
     update() {
         this.targetZ = this.getZFromLane(this.lane);
-        const lerpFactor = (gameState.slowTimer > 0) ? 0.1 : 0.25;
+        const isSlow = (gameState.slowEndTime > Date.now());
+        const lerpFactor = isSlow ? 0.1 : 0.25;
         this.mesh.position.z += (this.targetZ - this.mesh.position.z) * lerpFactor;
 
-        if (gameState.tireTimer > 0) {
+        const isTire = (gameState.tireEndTime > Date.now());
+        if (isTire) {
             this.tireGroup.children.forEach(t => t.rotation.x -= 0.5);
             this.mesh.position.x = -4 + (Math.random()-0.5)*0.1;
         } else {
@@ -879,7 +893,7 @@ class Piyo {
         }
 
         if (this.isJumping) {
-            const timeScale = (gameState.slowTimer > 0) ? 0.6 : 1.0;
+            const timeScale = isSlow ? 0.6 : 1.0;
             this.mesh.position.y += this.yVelocity * timeScale;
             const currentGravity = this.isFloating ? GAME_CONFIG.FLOAT_GRAVITY : GAME_CONFIG.GRAVITY;
             this.yVelocity -= currentGravity * timeScale;
@@ -898,9 +912,9 @@ class Piyo {
                 this.mesh.rotation.z = 0; 
             }
         } else {
-            this.bounceOffset = (this.bounceOffset || 0) + ((gameState.slowTimer > 0) ? 0.1 : 0.3);
+            this.bounceOffset = (this.bounceOffset || 0) + (isSlow ? 0.1 : 0.3);
             if (!this.onHole) {
-                if (gameState.tireTimer > 0) {
+                if (isTire) {
                      this.mesh.position.y = 1;
                 } else {
                     this.mesh.position.y = 1 + Math.abs(Math.sin(this.bounceOffset)) * 0.15;
@@ -1326,7 +1340,8 @@ class ObjectManager {
             this.deactivate(obj, index);
         } else if (type === 'chili') {
             soundManager.playTone('slow');
-            gameState.slowTimer = GAME_CONFIG.SLOW_TIME; 
+            // 実時間管理で5秒
+            gameState.slowEndTime = Date.now() + GAME_CONFIG.SLOW_DURATION_MS;
             updateOverlayEffect('red');
             particleSystem.emit(obj.mesh.position, 'impact');
             this.deactivate(obj, index);
@@ -1428,8 +1443,8 @@ function startGame(soundEnabled) {
     gameState.lives = 3;
     gameState.hp = 100;
     gameState.frameCount = 0;
-    gameState.slowTimer = 0;
-    gameState.tireTimer = 0;
+    gameState.slowEndTime = 0;
+    gameState.tireEndTime = 0;
     currentSpeed = GAME_CONFIG.BASE_SPEED;
 
     piyo.reset();
@@ -1512,17 +1527,26 @@ function animate() {
         
         let targetSpeed = GAME_CONFIG.BASE_SPEED;
 
-        if (gameState.slowTimer > 0) {
-            gameState.slowTimer--;
-            targetSpeed = GAME_CONFIG.SLOW_SPEED;
-            if (gameState.slowTimer === 0) updateOverlayEffect(null);
-        } else if (gameState.tireTimer > 0) {
-            gameState.tireTimer--;
-            targetSpeed = GAME_CONFIG.TIRE_SPEED;
-            if (gameState.tireTimer === 0) {
-                piyo.tireGroup.visible = false;
-                updateOverlayEffect(null);
-            }
+        // 実時間判定による状態管理
+        const now = Date.now();
+        const isSlow = (gameState.slowEndTime > now);
+        const isTire = (gameState.tireEndTime > now);
+
+        // エフェクト終了検知（描画反映のため）
+        if (gameState.slowEndTime > 0 && !isSlow) {
+            gameState.slowEndTime = 0; // 完了
+            if (!isTire) updateOverlayEffect(null);
+        }
+        if (gameState.tireEndTime > 0 && !isTire) {
+            gameState.tireEndTime = 0; // 完了
+            piyo.tireGroup.visible = false;
+            if (!isSlow) updateOverlayEffect(null);
+        }
+
+        if (isSlow) {
+            targetSpeed = GAME_CONFIG.BASE_SPEED * GAME_CONFIG.SLOW_SPEED_RATIO;
+        } else if (isTire) {
+            targetSpeed = GAME_CONFIG.BASE_SPEED * GAME_CONFIG.TIRE_SPEED_RATIO;
         } 
 
         currentSpeed += (targetSpeed - currentSpeed) * 0.05;
