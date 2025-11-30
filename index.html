@@ -776,6 +776,11 @@ class Piyo {
         if (gameState.hp <= 0) {
             gameState.lives--;
             gameState.hp = 100;
+            if (gameState.tireTimer > 0) {
+                 gameState.tireTimer = 0;
+                 this.tireGroup.visible = false;
+                 updateOverlayEffect(null);
+            }
             updateUI();
             showBubbu(); 
 
