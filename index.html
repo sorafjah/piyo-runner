@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <!-- iOS Standalone Mode Optimizations -->
+    <meta name="theme-color" content="#87CEEB">
+    <link rel="manifest" href="manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="format-detection" content="telephone=no">
-    
-    <!-- ホーム画面アイコン設定 -->
+    <meta name="apple-mobile-web-app-title" content="ぴよランナー">
     <link rel="apple-touch-icon" href="QR_piyorunner.png">
     <link rel="icon" href="QR_piyorunner.png">
     
@@ -175,11 +174,48 @@
             font-size: 16px;
             text-align: center;
             line-height: 1.8;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
             background: rgba(0, 0, 0, 0.5); 
-            padding: 20px;
+            padding: 15px;
             border-radius: 10px;
             min-width: 280px;
+        }
+
+        /* 速度選択エリア */
+        .speed-select-area {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 10px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            color: white;
+        }
+        .speed-options {
+            display: flex;
+            gap: 15px;
+            margin-top: 5px;
+            justify-content: center;
+        }
+        .speed-label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            font-size: 18px;
+            background: rgba(0,0,0,0.3);
+            padding: 8px 15px;
+            border-radius: 20px;
+            border: 2px solid transparent;
+        }
+        /* ラジオボタンは隠して見た目をCSSで作る */
+        .speed-label input {
+            display: none;
+        }
+        .speed-label:has(input:checked) {
+            background: #FFD700;
+            color: #333;
+            border-color: #fff;
+            font-weight: bold;
         }
 
         /* ランキングボード */
@@ -297,7 +333,6 @@
             will-change: opacity, background-color; 
         }
     </style>
-    <!-- Three.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
@@ -321,22 +356,30 @@
         <div id="overlay">
             <h1 id="title-text">ぴよランナー</h1>
             
-            <!-- スタート前の説明 -->
             <div class="instructions" id="instructions">
                 👆 タップ：ジャンプ<br>
                 ↔️ スワイプ：レーン移動<br>
                 🍙 おにぎり：体力回復
             </div>
 
-            <!-- ランキング表示エリア（ゲームオーバー時のみ表示） -->
+            <div class="speed-select-area" id="speed-selector">
+                <div>スピード選択</div>
+                <div class="speed-options">
+                    <label class="speed-label">
+                        <input type="radio" name="speed" value="low" checked> 🔰ゆっくり
+                    </label>
+                    <label class="speed-label">
+                        <input type="radio" name="speed" value="high"> 🚀はやい
+                    </label>
+                </div>
+            </div>
+
             <div id="ranking-board" class="hidden">
                 <h2>RANKING (TOP 100)</h2>
                 <ul id="ranking-list" class="rank-list">
-                    <!-- JSで挿入 -->
-                </ul>
+                    </ul>
             </div>
 
-            <!-- 結果スコア（ランキングの上に出る） -->
             <div class="instructions hidden" id="result-area">
                 SCORE: <span id="final-score">0</span>
             </div>
@@ -350,6 +393,19 @@
     </div>
 
 <script>
+// --- Service Worker Registration for PWA ---
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+            .then(registration => {
+                console.log('SW registered:', registration);
+            })
+            .catch(error => {
+                console.log('SW registration failed:', error);
+            });
+    });
+}
+
 window.onerror = function(message, source, lineno, colno, error) {
     console.error(message, error);
 };
@@ -523,10 +579,10 @@ const GAME_CONFIG = {
     LANE_COUNT: 4,
     LANE_WIDTH: 2.5,
     TILE_SIZE: 3,
-    BASE_SPEED: baseSpeedVal,
+    BASE_SPEED: baseSpeedVal, // これを動的に変更する
     TIRE_SPEED_RATIO: 1.3,
     SLOW_SPEED_RATIO: 0.8,
-    GRAVITY: 0.025,         
+    GRAVITY: 0.025,           
     FLOAT_GRAVITY: 0.008, 
     JUMP_FORCE: 0.45,
     LONG_JUMP_FORCE: 0.35, 
@@ -609,6 +665,7 @@ function init() {
     document.getElementById('start-sound-off').addEventListener('click', () => startGame(false));
     document.getElementById('retry-btn').addEventListener('click', () => {
         document.getElementById('start-buttons').classList.remove('hidden');
+        document.getElementById('speed-selector').classList.remove('hidden'); // スピード選択も再表示
         document.getElementById('retry-btn').classList.add('hidden');
         document.getElementById('result-area').classList.add('hidden');
         document.getElementById('ranking-board').classList.add('hidden');
@@ -619,6 +676,12 @@ function init() {
     const btns = document.querySelectorAll('button');
     btns.forEach(b => {
         b.addEventListener('touchstart', (e) => e.stopPropagation(), {passive: true});
+    });
+
+    // スピード選択のラジオボタンのタップ伝播防止
+    const radios = document.querySelectorAll('input[name="speed"]');
+    radios.forEach(r => {
+        r.parentElement.addEventListener('touchstart', (e) => e.stopPropagation(), {passive: true});
     });
 
     animate();
@@ -1538,7 +1601,21 @@ class InputManager {
 function startGame(soundEnabled) {
     soundManager.init(soundEnabled);
     
+    // スピード設定の取得
+    const speedRadio = document.querySelector('input[name="speed"]:checked');
+    const speedMode = speedRadio ? speedRadio.value : 'low';
+    
+    // スピードの設定
+    // baseSpeedValは環境判定（iOS等）による基準値（High相当）
+    // Lowの場合は0.8倍（唐辛子と同じ倍率）にする
+    if (speedMode === 'low') {
+        GAME_CONFIG.BASE_SPEED = baseSpeedVal * 0.8;
+    } else {
+        GAME_CONFIG.BASE_SPEED = baseSpeedVal;
+    }
+
     document.getElementById('start-buttons').classList.add('hidden');
+    document.getElementById('speed-selector').classList.add('hidden'); // スピード選択を隠す
     document.getElementById('overlay').classList.add('hidden');
     document.getElementById('result-area').classList.add('hidden');
     document.getElementById('ranking-board').classList.add('hidden');
@@ -1552,6 +1629,8 @@ function startGame(soundEnabled) {
     gameState.frameCount = 0;
     gameState.slowEndTime = 0;
     gameState.tireEndTime = 0;
+    
+    // 現在の速度を初期値にセット
     currentSpeed = GAME_CONFIG.BASE_SPEED;
 
     piyo.reset();
@@ -1615,8 +1694,7 @@ function renderRanking(rankData) {
         listEl.appendChild(li);
     });
 
-    // リストのトップへスクロール（自分がトップでない場合、自分の位置までスクロールする処理を入れてもいいが、とりあえずトップへ）
-    // もし自分の順位を表示したいなら、要素取得してscrollIntoViewを使う
+    // リストのトップへスクロール
     setTimeout(() => {
         const myItem = listEl.querySelector('.current-score');
         if (myItem) {
