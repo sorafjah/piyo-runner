@@ -566,8 +566,11 @@ const COLORS = {
     TIRE_WHEEL: 0xCCCCCC
 };
 
-// ★変更点：デバイスによる速度変更ロジックを削除し、一律 0.25 に設定
-const baseSpeedVal = 0.25;
+// ★変更点：デバイスによる速度変更ロジックを微調整
+let baseSpeedVal = 0.25;
+if (IS_IOS) {
+    baseSpeedVal = 0.35; // 中間の速度に設定
+}
 
 const GAME_CONFIG = {
     LANE_COUNT: 4,
@@ -1600,7 +1603,7 @@ function startGame(soundEnabled) {
     const speedMode = speedRadio ? speedRadio.value : 'low';
     
     // スピードの設定
-    // baseSpeedValは環境判定によらず固定値0.25
+    // baseSpeedValは環境判定（iOSなら0.35、その他は0.25）
     // Lowの場合は0.8倍（唐辛子と同じ倍率）にする
     if (speedMode === 'low') {
         GAME_CONFIG.BASE_SPEED = baseSpeedVal * 0.8;
