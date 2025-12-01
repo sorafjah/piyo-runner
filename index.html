@@ -366,7 +366,8 @@
                 <div>スピード選択</div>
                 <div class="speed-options">
                     <label class="speed-label">
-                        <input type="radio" name="speed" value="low" checked> 🔰ゆっくり
+                        <!-- 変更：表記を「のんびり」に変更 -->
+                        <input type="radio" name="speed" value="low" checked> 🔰のんびり
                     </label>
                     <label class="speed-label">
                         <input type="radio" name="speed" value="high"> 🚀はやい
@@ -569,7 +570,7 @@ const COLORS = {
 // ★変更点：デバイスによる速度変更ロジックを微調整
 let baseSpeedVal = 0.25;
 if (IS_IOS) {
-    baseSpeedVal = 0.35; // 中間の速度に設定
+    baseSpeedVal = 0.45; // ★iOS(iPhone/iPad)のときは0.45に設定
 }
 
 const GAME_CONFIG = {
@@ -579,7 +580,7 @@ const GAME_CONFIG = {
     BASE_SPEED: baseSpeedVal, // これを動的に変更する
     TIRE_SPEED_RATIO: 1.3,
     SLOW_SPEED_RATIO: 0.8,
-    GRAVITY: 0.025,           
+    GRAVITY: 0.025,            
     FLOAT_GRAVITY: 0.008, 
     JUMP_FORCE: 0.45,
     LONG_JUMP_FORCE: 0.35, 
@@ -1603,10 +1604,10 @@ function startGame(soundEnabled) {
     const speedMode = speedRadio ? speedRadio.value : 'low';
     
     // スピードの設定
-    // baseSpeedValは環境判定（iOSなら0.35、その他は0.25）
-    // Lowの場合は0.8倍（唐辛子と同じ倍率）にする
+    // baseSpeedValは環境判定（iOSなら0.45、その他は0.25）
+    // Lowの場合は0.7倍にする
     if (speedMode === 'low') {
-        GAME_CONFIG.BASE_SPEED = baseSpeedVal * 0.8;
+        GAME_CONFIG.BASE_SPEED = baseSpeedVal * 0.7; // ★変更：0.8から0.7に変更
     } else {
         GAME_CONFIG.BASE_SPEED = baseSpeedVal;
     }
