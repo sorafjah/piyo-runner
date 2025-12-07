@@ -358,7 +358,7 @@
             
             <div class="instructions" id="instructions">
                 👆 タップ：ジャンプ<br>
-                ↔️ スワイプ：レーン移動<br>
+                ↕️ 上下スワイプ：レーン移動<br>
                 🍙 おにぎり：体力回復
             </div>
 
@@ -366,7 +366,6 @@
                 <div>スピード選択</div>
                 <div class="speed-options">
                     <label class="speed-label">
-                        <!-- 変更：表記を「のんびり」に変更 -->
                         <input type="radio" name="speed" value="low" checked> 🔰のんびり
                     </label>
                     <label class="speed-label">
@@ -580,7 +579,7 @@ const GAME_CONFIG = {
     BASE_SPEED: baseSpeedVal, // これを動的に変更する
     TIRE_SPEED_RATIO: 1.3,
     SLOW_SPEED_RATIO: 0.8,
-    GRAVITY: 0.025,            
+    GRAVITY: 0.025,             
     FLOAT_GRAVITY: 0.008, 
     JUMP_FORCE: 0.45,
     LONG_JUMP_FORCE: 0.35, 
