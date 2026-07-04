@@ -1748,8 +1748,13 @@ function checkTileGimmick() {
     }
 }
 
-function animate() {
+let lastFrameTime = 0; // 120Hz iPad対策
+function animate(now = performance.now()) {
     requestAnimationFrame(animate);
+
+    // 更新を60fps相当に間引く（120Hz端末で2倍速になるのを防ぐ）
+    if (now - lastFrameTime < 15) return;
+    lastFrameTime = now;
 
     if (gameState.isPlaying) {
         gameState.frameCount++;
